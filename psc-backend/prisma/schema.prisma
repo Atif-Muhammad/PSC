@@ -1,0 +1,334 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// admin role
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+}
+
+model Admin {
+  id            Int      @id @default(autoincrement())
+  name          String
+  email         String   @unique
+  password      String
+  biometricsKey String? // public key
+  role          Role     @default(ADMIN)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+enum MemberStatus {
+  ACTIVE
+  DEACTIVATED
+  BLOCKED
+}
+
+model Member {
+  Sno           Int          @id @default(autoincrement())
+  Membership_No String       @unique
+  Name          String
+  Email         String?      @unique
+  Contact_No    String?      @unique
+  Status        MemberStatus @default(ACTIVE)
+  Balance       Decimal      @default(0.00) @db.Decimal(20, 2)
+  Other_Details String?
+
+  roomBookings        RoomBooking[]
+  hallBookings        HallBooking[]
+  lawnBookings        LawnBooking[]
+  photoshootBookings  PhotoshootBooking[]
+  sportsSubscriptions SportSubscription[]
+
+  totalBookings Int @default(0)
+  drAmount Decimal @default(0.00) @db.Decimal(12, 0)
+  crAmount Decimal @default(0.00) @db.Decimal(12, 0)
+  lastBookingDate DateTime?
+
+  vouchers PaymentVoucher[]
+
+  otp       Int? //temp otp
+  otpExpiry DateTime? //otp expiry time
+  createdAt DateTime  @default(now())
+  updatedat DateTime  @updatedAt
+}
+
+enum PaymentStatus {
+  UNPAID
+  HALF_PAID
+  PAID
+}
+
+model RoomBooking {
+  id         Int      @id @default(autoincrement())
+  Membership_No   String
+  roomId     Int
+  checkIn    DateTime
+  checkOut   DateTime
+
+  totalPrice Decimal  @default(0.00) @db.Decimal(30, 2)
+  paymentStatus PaymentStatus @default(UNPAID)
+  pricingType String
+  paidAmount  Decimal @db.Decimal(30,2) @default(0.00)
+  pendingAmount Decimal @db.Decimal(30,2) @default(0.00)
+
+
+  member Member @relation(fields: [Membership_No], references: [Membership_No])
+  room   Room   @relation(fields: [roomId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model HallBooking {
+  id          Int      @id @default(autoincrement())
+  memberId    Int
+  hallId      Int
+  bookingDate DateTime
+  totalPrice  Decimal  @default(0.00) @db.Decimal(30, 2)
+
+  member Member @relation(fields: [memberId], references: [Sno])
+  hall   Hall   @relation(fields: [hallId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model LawnBooking {
+  id          Int      @id @default(autoincrement())
+  memberId    Int
+  lawnId      Int
+  bookingDate DateTime
+  guestsCount Int
+  totalPrice  Decimal  @default(0.00) @db.Decimal(30, 2)
+
+  member Member @relation(fields: [memberId], references: [Sno])
+  lawn   Lawn   @relation(fields: [lawnId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PhotoshootBooking {
+  id           Int      @id @default(autoincrement())
+  memberId     Int
+  photoshootId Int
+  bookingDate  DateTime
+  totalPrice   Decimal  @default(0.00) @db.Decimal(30, 2)
+
+  member     Member     @relation(fields: [memberId], references: [Sno])
+  photoshoot Photoshoot @relation(fields: [photoshootId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SportSubscription {
+  id         Int        @id @default(autoincrement())
+  memberId   Int
+  sportId    Int
+  chargeType ChargeType
+  startDate  DateTime
+  endDate    DateTime?
+  totalPaid  Decimal    @default(0.00) @db.Decimal(30, 2)
+  isActive   Boolean    @default(true)
+
+  member Member @relation(fields: [memberId], references: [Sno])
+  sport  Sport  @relation(fields: [sportId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PaymentVoucher {
+  id             Int      @id @default(autoincrement())
+  voucher_no     String   @unique @default(cuid())
+
+  booking_type   BookingType
+  booking_id     Int
+
+  membership_no  String
+  member         Member   @relation(fields: [membership_no], references: [Membership_No])
+
+  amount         Decimal  @db.Decimal(12, 2)
+  payment_mode   PaymentMode @default(CASH)
+  transaction_id String?
+  remarks        String?
+
+  voucher_type   VoucherType
+  status         VoucherStatus @default(PENDING)
+
+  issued_at      DateTime @default(now())
+  issued_by      String?
+
+  @@index([booking_type, booking_id])
+  @@index([membership_no])
+  @@index([voucher_no])
+}
+
+enum BookingType {
+  ROOM
+  HALL
+  LAWN
+  PHOTOSHOOT
+}
+
+enum PaymentMode {
+  CASH
+  ONLINE
+}
+
+enum VoucherType {
+  FULL_PAYMENT
+  HALF_PAYMENT
+  REFUND
+  ADJUSTMENT
+}
+
+enum VoucherStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
+
+
+// rooms types
+model RoomType {
+  id          Int      @id @unique() @default(autoincrement())
+  type        String   @db.VarChar(50)
+  priceMember Decimal  @default(0.00) @db.Decimal(30, 2)
+  priceGuest  Decimal  @default(0.00) @db.Decimal(30, 2)
+  rooms       Room[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// rooms
+model Room {
+  id         Int      @id @unique @default(autoincrement())
+  roomNumber String   @unique() @db.VarChar(50)
+  roomTypeId Int
+  roomType   RoomType @relation(fields: [roomTypeId], references: [id])
+
+  description String? @db.VarChar(300)
+
+  isActive         Boolean   @default(true)
+  isOutOfOrder     Boolean   @default(false)
+  outOfOrderFrom   DateTime?
+  outOfOrderTo     DateTime?
+  outOfOrderReason String?   @db.VarChar(300)
+
+  isBooked Boolean       @default(false)
+  bookings RoomBooking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// halls
+model Hall {
+  id          Int    @id @unique() @default(autoincrement())
+  name        String @db.VarChar(50)
+  description String @db.VarChar(200)
+
+  capacity       Int
+  chargesMembers Decimal @default(0.00) @db.Decimal(30, 2)
+  chargesGuests  Decimal @default(0.00) @db.Decimal(30, 2)
+
+  isActive           Boolean   @default(true)
+  isOutOfService     Boolean   @default(true)
+  outOfServiceReason String?   @db.VarChar(300)
+  outOfServiceFrom   DateTime?
+  outOfServiceTo     DateTime?
+
+  isBooked Boolean       @default(false)
+  bookings HallBooking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Lawn {
+  id          Int    @id @unique @default(autoincrement())
+  description String @db.VarChar(200)
+
+  lawnCategoryId Int
+  lawnCategory   LawnCategory @relation(fields: [lawnCategoryId], references: [id])
+  minGuests      Int?         @default(0)
+  maxGuests      Int          @default(0)
+
+  memberCharges Decimal @default(0.00) @db.Decimal(30, 2)
+  guestCharges  Decimal @default(0.00) @db.Decimal(30, 2)
+
+  isBooked Boolean       @default(false)
+  bookings LawnBooking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model LawnCategory {
+  id        Int      @unique @default(autoincrement())
+  category  String   @db.VarChar(200)
+  lawns     Lawn[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// photoshoot
+model Photoshoot {
+  id          Int    @id @unique @default(autoincrement())
+  description String @db.VarChar(200)
+
+  memberCharges Decimal @default(0.00) @db.Decimal(30, 2)
+  guestCharges  Decimal @default(0.00) @db.Decimal(30, 2)
+
+  isBooked Boolean             @default(false)
+  bookings PhotoshootBooking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// sports
+enum ChargeType {
+  PER_DAY
+  PER_MONTH
+  PER_GAME
+  PER_HOUR
+}
+
+model Sport {
+  id          Int     @unique @default(autoincrement())
+  activity    String  @db.VarChar(100)
+  description String? @db.VarChar(300)
+  isActive    Boolean @default(true)
+
+  subscriptions SportSubscription[]
+
+  sportCharge SportCharge[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model SportCharge {
+  id         Int        @unique @default(autoincrement())
+  activityId Int
+  chargeType ChargeType
+
+  memberCharges         Decimal? @default(0.00) @db.Decimal(30, 2)
+  spouseCharges         Decimal? @default(0.00) @db.Decimal(30, 2)
+  childrenCharges       Decimal? @default(0.00) @db.Decimal(30, 2)
+  guestCharges          Decimal? @default(0.00) @db.Decimal(30, 2)
+  affiliatedClubCharges Decimal? @default(0.00) @db.Decimal(30, 2)
+
+  activity  Sport    @relation(fields: [activityId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
