@@ -20,6 +20,7 @@ model Admin {
   password      String
   biometricsKey String? // public key
   role          Role     @default(ADMIN)
+  permissions Json @default("{}")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
@@ -37,7 +38,7 @@ model Member {
   Email         String?      @unique
   Contact_No    String?      @unique
   Status        MemberStatus @default(ACTIVE)
-  Balance       Decimal      @default(0.00) @db.Decimal(20, 2)
+  Balance       Decimal?      @default(0.00) @db.Decimal(20, 2)
   Other_Details String?
 
   roomBookings        RoomBooking[]

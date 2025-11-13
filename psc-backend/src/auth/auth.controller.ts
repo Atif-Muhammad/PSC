@@ -93,7 +93,7 @@ export class AuthController {
         });
     }
 
-    @Post('logout/admin')
+    @Post('logout')
     async logoutAdmin(
         @Req() req: Request,
         @Res({ passthrough: true }) res: Response,

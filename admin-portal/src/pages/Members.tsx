@@ -1,59 +1,223 @@
-import { useState } from "react";
-import { mockMembers } from "@/lib/mockData";
+import { useEffect, useState } from "react";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Search, Upload, UserCheck, UserX, Ban, Edit, Trash2 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Plus,
+  Search,
+  Upload,
+  UserCheck,
+  UserX,
+  Ban,
+  Edit,
+  Trash2,
+} from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import * as XLSX from "xlsx";
+import {
+  getMembers,
+  createMember,
+  updateMember,
+  deleteMember,
+  createBulkMembers,
+} from "../../config/apis";
 
 export default function Members() {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "DEACTIVATED" | "BLOCKED">("ALL");
-  const [isAddOpen, setIsAddOpen] = useState(false);
-  const [editMember, setEditMember] = useState<any>(null);
-  const [deleteMember, setDeleteMember] = useState<any>(null);
+  const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const filteredMembers = mockMembers.filter((member) => {
-    const matchesSearch =
-      member.Membership_No.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      member.Name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (member.Email?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false);
-    const matchesStatus = statusFilter === "ALL" || member.Status === statusFilter;
-    return matchesSearch && matchesStatus;
+  // Filters
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [editMember, setEditMember] = useState<any>(null);
+  const [deleteMemberDialog, setDeleteMemberDialog] = useState<any>(null);
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+
+  // ─── Fetch Members ────────────────────────────────────────────────
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } =
+    useInfiniteQuery({
+      queryKey: ["members", searchQuery, statusFilter],
+      queryFn: ({ pageParam = 1, queryKey }) => {
+        const [, searchFromKey, statusFromKey] = queryKey as [
+          string,
+          string | undefined,
+          string | undefined
+        ];
+
+        return getMembers({
+          pageParam,
+          search: searchFromKey,
+          status: statusFromKey === "all" ? undefined : statusFromKey,
+        });
+      },
+      getNextPageParam: (lastPage) =>
+        lastPage?.pagination?.hasNext
+          ? lastPage.pagination.page + 1
+          : undefined,
+      initialPageParam: 1,
+    });
+
+  // console.log(data)
+
+  const members = data?.pages.flatMap((p) => p.data) ?? [];
+
+  // ─── Mutations ───────────────────────────────────────────────────
+  const createMutation = useMutation({
+    mutationFn: createMember,
+    onSuccess: () => {
+      toast({ title: "Member added successfully" });
+      setIsAddOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["members"] });
+    },
   });
 
+  const updateMutation = useMutation({
+    mutationFn: ({ Membership_No, updates}: { Membership_No: any, updates: any})=> updateMember({Membership_No, updates}),
+    onSuccess: () => {
+      toast({ title: "Member updated successfully" });
+      setEditMember(null);
+      queryClient.invalidateQueries({ queryKey: ["members"] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteMember,
+    onSuccess: () => {
+      toast({ title: "Member deleted successfully" });
+      setDeleteMemberDialog(null);
+      queryClient.invalidateQueries({ queryKey: ["members"] });
+    },
+  });
+
+  const bulkMutation = useMutation({
+    mutationFn: async (data: any[]) => {
+      const batchSize = 500;
+      for (let i = 0; i < data.length; i += batchSize) {
+        const batch = data.slice(i, i + batchSize);
+        await createBulkMembers(batch);
+      }
+    },
+    onSuccess: () => {
+      toast({ title: "Bulk upload completed" });
+      queryClient.invalidateQueries({ queryKey: ["members"] });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Bulk upload failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // ─── File Upload Logic ────────────────────────────────────────────
+  const handleBulkUpload = async () => {
+    if (!bulkFile) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const data = new Uint8Array(e.target?.result as ArrayBuffer);
+      const workbook = XLSX.read(data, { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(sheet);
+      bulkMutation.mutate(json as any[]);
+    };
+    reader.readAsArrayBuffer(bulkFile);
+  };
+
+  // ─── Helpers ─────────────────────────────────────────────────────
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "ACTIVE":
-        return <Badge className="bg-success text-success-foreground"><UserCheck className="h-3 w-3 mr-1" />Active</Badge>;
+        return (
+          <Badge className="bg-green-500/80 text-white">
+            <UserCheck className="h-3 w-3 mr-1" />
+            Active
+          </Badge>
+        );
       case "DEACTIVATED":
-        return <Badge className="bg-warning text-warning-foreground"><UserX className="h-3 w-3 mr-1" />Deactivated</Badge>;
+        return (
+          <Badge className="bg-yellow-500/80 text-white">
+            <UserX className="h-3 w-3 mr-1" />
+            Deactivated
+          </Badge>
+        );
       case "BLOCKED":
-        return <Badge className="bg-destructive text-destructive-foreground"><Ban className="h-3 w-3 mr-1" />Blocked</Badge>;
+        return (
+          <Badge className="bg-red-500/80 text-white">
+            <Ban className="h-3 w-3 mr-1" />
+            Blocked
+          </Badge>
+        );
       default:
         return <Badge>{status}</Badge>;
     }
   };
 
+  useEffect(() => {
+    const handleScroll = () => {
+      if (
+        window.innerHeight + window.scrollY >=
+          document.body.offsetHeight - 300 && // near bottom
+        hasNextPage &&
+        !isFetchingNextPage
+      ) {
+        fetchNextPage();
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  // ─── UI ───────────────────────────────────────────────────────────
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-foreground">Members</h2>
-          <p className="text-muted-foreground">Manage club members and their information</p>
+          <h2 className="text-3xl font-bold tracking-tight">Members</h2>
+          <p className="text-muted-foreground">
+            Manage club members and their information
+          </p>
         </div>
+
         <div className="flex gap-2">
+          {/* Bulk Upload */}
           <Dialog>
             <DialogTrigger asChild>
               <Button variant="outline" className="gap-2">
-                <Upload className="h-4 w-4" />
-                Bulk Upload
+                <Upload className="h-4 w-4" /> Bulk Upload
               </Button>
             </DialogTrigger>
             <DialogContent>
@@ -63,52 +227,81 @@ export default function Members() {
               <div className="space-y-4 py-4">
                 <div>
                   <Label>Upload CSV/Excel File</Label>
-                  <Input type="file" accept=".csv,.xlsx,.xls" className="mt-2" />
+                  <Input
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    className="mt-2"
+                    onChange={(e) => setBulkFile(e.target.files?.[0] || null)}
+                  />
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Upload a CSV or Excel file with columns: Membership Number, Name, Email, Contact Number
+                  Upload a CSV or Excel file (max 500 records per batch)
                 </p>
               </div>
               <DialogFooter>
-                <Button className="w-full" onClick={() => toast({ title: "Upload started", description: "Mock: File processing..." })}>
-                  Upload File
+                <Button
+                  className="w-full"
+                  onClick={handleBulkUpload}
+                  disabled={bulkMutation.isPending}
+                >
+                  {bulkMutation.isPending ? "Uploading..." : "Upload File"}
                 </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          {/* Add Member */}
           <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
             <DialogTrigger asChild>
               <Button className="gap-2">
-                <Plus className="h-4 w-4" />
-                Add Member
+                <Plus className="h-4 w-4" /> Add Member
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Add New Member</DialogTitle>
               </DialogHeader>
-              <div className="space-y-4 py-4">
+              <form
+                className="space-y-4 py-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.currentTarget);
+                  const data = Object.fromEntries(formData.entries());
+                  createMutation.mutate(data);
+                }}
+              >
                 <div>
                   <Label>Membership Number</Label>
-                  <Input placeholder="PSC001" className="mt-2" />
+                  <Input name="Membership_No" placeholder="PSC001" required />
                 </div>
                 <div>
                   <Label>Name</Label>
-                  <Input placeholder="John Doe" className="mt-2" />
+                  <Input name="Name" placeholder="John Doe" required />
                 </div>
                 <div>
                   <Label>Email</Label>
-                  <Input type="email" placeholder="john@example.com" className="mt-2" />
+                  <Input
+                    name="Email"
+                    type="email"
+                    placeholder="john@example.com"
+                  />
                 </div>
                 <div>
                   <Label>Contact Number</Label>
-                  <Input placeholder="0300-1234567" className="mt-2" />
+                  <Input name="Contact_No" placeholder="0300-1234567" />
+                </div>
+                <div>
+                  <Label>Other Details (optional)</Label>
+                  <Input
+                    name="Other_Details"
+                    placeholder="Any additional notes..."
+                  />
                 </div>
                 <div>
                   <Label>Status</Label>
-                  <Select defaultValue="ACTIVE">
-                    <SelectTrigger className="mt-2">
-                      <SelectValue />
+                  <Select name="Status" defaultValue="ACTIVE">
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select status" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="ACTIVE">Active</SelectItem>
@@ -117,21 +310,91 @@ export default function Members() {
                     </SelectContent>
                   </Select>
                 </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
-                <Button onClick={() => { toast({ title: "Member added", description: "New member created successfully" }); setIsAddOpen(false); }}>
-                  Create Member
-                </Button>
-              </DialogFooter>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsAddOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit">Create Member</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+          {/* Edit Member Dialog with Other Details */}
+          <Dialog open={!!editMember} onOpenChange={() => setEditMember(null)}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Edit Member</DialogTitle>
+              </DialogHeader>
+              {editMember && (
+                <form
+                  className="space-y-4 py-4"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.currentTarget);
+                    const updates = Object.fromEntries(formData.entries());
+                    console.log(editMember)
+                    updateMutation.mutate({ Membership_No: editMember.Membership_No, updates: {...updates, Sno: editMember.Sno} });
+                  }}
+                >
+                  <div><Label>Membership Number</Label>
+                  <Input
+                    name="Membership_No"
+                    defaultValue={editMember.Membership_No}
+                    /></div>
+                    <div><Label>Name</Label>
+                  <Input name="Name" defaultValue={editMember.Name} /></div>
+                    <div><Label>Email</Label>
+                  <Input name="Email" defaultValue={editMember.Email} /></div>
+                  <div><Label>Contact Number</Label>
+                  <Input
+                    name="Contact_No"
+                    defaultValue={editMember.Contact_No}
+                    /></div>
+                    <div>
+                      <Label>Other Details(optional)</Label>
+                  <Input
+                    name="Other_Details"
+                    defaultValue={editMember.Other_Details || ""}
+                    placeholder="Additional info..."
+                    />
+                    </div>
+                    <div>
+                      <Label>Status</Label>
+                  <Select name="Status" defaultValue={editMember.Status}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ACTIVE">Active</SelectItem>
+                      <SelectItem value="DEACTIVATED">Deactivated</SelectItem>
+                      <SelectItem value="BLOCKED">Blocked</SelectItem>
+                    </SelectContent>
+                  </Select>
+                    </div>
+                  <DialogFooter>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setEditMember(null)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button type="submit">
+                      {updateMutation.isPending ? "Updating..." : "Update"}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              )}
             </DialogContent>
           </Dialog>
         </div>
       </div>
 
+      {/* Members Table */}
       <Card>
         <CardContent className="pt-6">
           <div className="space-y-4">
+            {/* Filters */}
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -143,151 +406,109 @@ export default function Members() {
                 />
               </div>
               <div className="flex gap-2">
-                <Button
-                  variant={statusFilter === "ALL" ? "default" : "outline"}
-                  onClick={() => setStatusFilter("ALL")}
-                  size="sm"
-                >
-                  All
-                </Button>
-                <Button
-                  variant={statusFilter === "ACTIVE" ? "default" : "outline"}
-                  onClick={() => setStatusFilter("ACTIVE")}
-                  size="sm"
-                >
-                  Active
-                </Button>
-                <Button
-                  variant={statusFilter === "DEACTIVATED" ? "default" : "outline"}
-                  onClick={() => setStatusFilter("DEACTIVATED")}
-                  size="sm"
-                >
-                  Deactivated
-                </Button>
-                <Button
-                  variant={statusFilter === "BLOCKED" ? "default" : "outline"}
-                  onClick={() => setStatusFilter("BLOCKED")}
-                  size="sm"
-                >
-                  Blocked
-                </Button>
+                {["all", "ACTIVE", "DEACTIVATED", "BLOCKED"].map((status) => (
+                  <Button
+                    key={status}
+                    variant={statusFilter === status ? "default" : "outline"}
+                    onClick={() => setStatusFilter(status)}
+                    size="sm"
+                  >
+                    {status.charAt(0) + status.slice(1).toLowerCase()}
+                  </Button>
+                ))}
               </div>
             </div>
 
-            <div className="rounded-md border">
+            {/* Table */}
+            <div className="rounded-md border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                  <TableHead>Membership No</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Contact</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Balance</TableHead>
-                  <TableHead className="text-right">Bookings</TableHead>
-                  <TableHead>Last Booking</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                    <TableHead>Membership No</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Balance</TableHead>
+                    <TableHead className="text-right">Bookings</TableHead>
+                    <TableHead>Last Booking</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredMembers.map((member) => (
-                    <TableRow key={member.Sno} className="hover:bg-muted/50">
-                      <TableCell className="font-medium">{member.Membership_No}</TableCell>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{member.Name}</div>
-                          <div className="text-sm text-muted-foreground">{member.Email}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>{member.Contact_No}</TableCell>
-                      <TableCell>{getStatusBadge(member.Status)}</TableCell>
-                      <TableCell className="text-right font-medium">
-                        PKR {member.Balance.toLocaleString()}
-                      </TableCell>
-                      <TableCell className="text-right">{member.totalBookings}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{member.lastBookingDate}</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={() => setEditMember(member)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => setDeleteMember(member)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                  {isLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center">
+                        Loading...
                       </TableCell>
                     </TableRow>
-                  ))}
+                  ) : (
+                    members.map((member) => (
+                      <TableRow
+                        key={member.Membership_No}
+                        className="hover:bg-muted/50"
+                      >
+                        <TableCell className="font-medium">
+                          {member.Membership_No}
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium">{member.Name}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {member.Email}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>{member.Contact_No}</TableCell>
+                        <TableCell>{getStatusBadge(member.Status)}</TableCell>
+                        <TableCell className="text-right font-medium">
+                          PKR {member.Balance?.toLocaleString() || 0}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {member.totalBookings || 0}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {member.lastBookingDate || "-"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setEditMember(member)}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setDeleteMemberDialog(member)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
-            </div>
-            <div className="text-sm text-muted-foreground">
-              Showing {filteredMembers.length} of {mockMembers.length} members
             </div>
           </div>
         </CardContent>
       </Card>
+      {isFetchingNextPage && (
+        <div className="flex justify-center py-4">
+          <span className="text-sm text-muted-foreground animate-pulse">
+            Loading more members...
+          </span>
+        </div>
+      )}
 
-      {/* Edit Member Dialog */}
-      <Dialog open={!!editMember} onOpenChange={() => setEditMember(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Member</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div>
-              <Label>Membership Number</Label>
-              <Input defaultValue={editMember?.Membership_No} disabled className="mt-2" />
-            </div>
-            <div>
-              <Label>Name</Label>
-              <Input defaultValue={editMember?.Name} className="mt-2" />
-            </div>
-            <div>
-              <Label>Email</Label>
-              <Input type="email" defaultValue={editMember?.Email} className="mt-2" />
-            </div>
-            <div>
-              <Label>Contact Number</Label>
-              <Input defaultValue={editMember?.Contact_No} className="mt-2" />
-            </div>
-            <div>
-              <Label>Status</Label>
-              <Select defaultValue={editMember?.Status}>
-                <SelectTrigger className="mt-2">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ACTIVE">Active</SelectItem>
-                  <SelectItem value="DEACTIVATED">Deactivated</SelectItem>
-                  <SelectItem value="BLOCKED">Blocked</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditMember(null)}>Cancel</Button>
-            <Button onClick={() => { toast({ title: "Member updated", description: "Member details updated successfully" }); setEditMember(null); }}>
-              Update
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Member Dialog */}
-      <Dialog open={!!deleteMember} onOpenChange={() => setDeleteMember(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Member</DialogTitle>
-          </DialogHeader>
-          <p className="py-4">
-            Are you sure you want to delete <strong>{deleteMember?.Name}</strong> (Membership: {deleteMember?.Membership_No})? This action cannot be undone.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteMember(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => { toast({ title: "Member deleted", description: "Member removed successfully" }); setDeleteMember(null); }}>
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {!hasNextPage && members.length > 0 && (
+        <div className="flex justify-center py-4">
+          <span className="text-sm text-muted-foreground">
+            All members loaded.
+          </span>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,9 +1,24 @@
+
 import axios from "axios";
+import { promises } from "dns";
 const base_url = "http://localhost:3000";
 
 export const authAdmin = async (data: any) => {
   try {
     const response = await axios.post(`${base_url}/auth/login/admin`, data, {
+      withCredentials: true,
+      headers: {
+        "Client-Type": "web",
+      },
+    });
+    return response;
+  } catch (error: any) {
+    throw new Error(error);
+  }
+};
+export const logout = async () => {
+  try {
+    const response = await axios.post(`${base_url}/auth/logout`, {}, {
       withCredentials: true,
       headers: {
         "Client-Type": "web",
@@ -30,9 +45,9 @@ export const userWho = async () => {
 };
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 
-export const getAdmins = async () => {
+export const getAdmins = async (): Promise<any>=> {
   try {
-    const response = await axios.get(`${base_url}/admin/get/admins`, {
+    const response: {data: any[]} = await axios.get(`${base_url}/admin/get/admins`, {
       withCredentials: true,
     });
     return response.data;
@@ -58,6 +73,7 @@ export const createAdmin = async (data: any) => {
 };
 export const updateAdmin = async ({ adminID, ...updates }: {adminID: any, updates: any}) => {
   try {
+    // console.log(updates)
     const response = await axios.patch(
       `${base_url}/auth/update/admin?adminID=${adminID}`,
       updates,
@@ -95,21 +111,29 @@ export const deleteAdmin = async (adminID: any) => {
 
 ////////////////////////////////////////// members ///////////////////////////////////////////////////
 
-export const getMembers = async ({ pageParam = 1, queryKey }: {pageParam: number, queryKey: any}) => {
-  const [, id, search, status] = queryKey;
+// api/admin.ts
+export const getMembers = async ({
+  pageParam = 1,
+  search,
+  status,
+}: {
+  pageParam?: number;
+  search?: string;
+  status?: string;
+}): Promise<any> => {
   const params = new URLSearchParams({
-    page: String(pageParam),
+    page: pageParam.toString(),
     limit: "50",
-    ...(search && { search }),
-    ...(status && status !== "all" && { status }),
   });
 
-  const response = await axios.get(`${base_url}/admin/get/members?${params}`, {
-    withCredentials: true,
-  });
+  if (search) params.append("search", search);
+  if (status) params.append("status", status);
 
-  return response.data; 
+  const res = await axios.get(`${base_url}/admin/get/members?${params.toString()}`);
+  if (res.status != 200) throw new Error("Failed to fetch members");
+  return res.data
 };
+
 export const createMember = async (data: any) => {
   try {
     const response = await axios.post(`${base_url}/admin/create/member`, data, {
@@ -126,11 +150,11 @@ export const createMember = async (data: any) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const updateMember = async ({ Membership_No, ...updates }: {Membership_No: any, updates: any}) => {
+export const updateMember = async ({ Membership_No, ...updates }: {Membership_No: any, updates: any}): Promise<any> => {
   try {
     const response = await axios.patch(
       `${base_url}/admin/update/member?memberID=${Membership_No}`,
-      updates,
+      updates.updates,
       { withCredentials: true }
     );
     return response.data;
@@ -144,7 +168,7 @@ export const updateMember = async ({ Membership_No, ...updates }: {Membership_No
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const deleteMember = async (memberID: any) => {
+export const deleteMember = async (memberID: any): Promise<any> => {
   try {
     const response = await axios.delete(
       `${base_url}/admin/remove/member?memberID=${memberID}`,
@@ -161,7 +185,7 @@ export const deleteMember = async (memberID: any) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const createBulkMembers = async (data: any) => {
+export const createBulkMembers = async (data: any): Promise<any> => {
   try {
     const response = await axios.post(
       `${base_url}/admin/create/bulk/members`,
@@ -180,7 +204,7 @@ export const createBulkMembers = async (data: any) => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const searchMembers = async (searchString: any) => {
+export const searchMembers = async (searchString: any): Promise<any> => {
   try {
     const response = await axios.get(
       `${base_url}/admin/search/members?searchFor=${searchString}`,
@@ -217,7 +241,7 @@ export const getBookings = async (bookingsFor: any) => {
   }
 };
 export const createBooking = async (data: any) => {
-  console.log(data)
+  // console.log(data)
   try {
     const response = await axios.post(
       `${base_url}/admin/create/booking`,
@@ -272,11 +296,29 @@ export const deleteBooking = async (bookID: any) => {
 };
 
 // rooms
-export const getRoomTypes = async () => {
+export const getRoomTypes = async (): Promise<any> => {
   try {
     const response = await axios.get(`${base_url}/admin/get/roomTypes`, {
       withCredentials: true,
     });
+    return response.data;
+  } catch (error: any) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+export const createRoomType = async (data: any): Promise<any> => {
+  try {
+    const response = await axios.post(
+      `${base_url}/admin/create/roomType`,
+      data,
+      { withCredentials: true }
+    );
     return response;
   } catch (error: any) {
     const message =
@@ -288,14 +330,32 @@ export const getRoomTypes = async () => {
     throw { message, status: error.response?.status || 500 };
   }
 };
-export const createRoomType = async (data: any) => {
+export const updateRoomType = async (id: string | number, data: any): Promise<any> => {
   try {
-    const response = await axios.post(
-      `${base_url}/admin/create/roomType`,
+    const response = await axios.patch(
+      `${base_url}/admin/update/roomType?id=${id}`,
       data,
       { withCredentials: true }
     );
-    return response;
+    return response.data;
+  } catch (error: any) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const deleteRoomType = async (id: string | number): Promise<any> => {
+  try {
+    const response = await axios.delete(
+      `${base_url}/admin/delete/roomType?id=${id}`,
+      { withCredentials: true }
+    );
+    return response.data;
   } catch (error: any) {
     const message =
       error.response?.data?.message ||

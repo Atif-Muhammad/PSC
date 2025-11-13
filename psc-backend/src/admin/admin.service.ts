@@ -34,21 +34,21 @@ export class AdminService {
   async createBulk(payload: CreateMemberDto[]) {
     const operations = payload.map((row) =>
       this.prismaService.member.upsert({
-        where: { Membership_No: row.Membership_No! },
+        where: { Membership_No: row.Membership_No!.toString() },
         update: {
           Name: row.Name!,
           Email: row.Email!,
-          Contact_No: row.Contact_No!,
+          Contact_No: row.Contact_No!.toString(),
           Status:
             prismaMemberStatus[row.Status as keyof typeof prismaMemberStatus],
           Balance: Number(row.Balance!),
           Other_Details: row.Other_Details!,
         },
         create: {
-          Membership_No: row.Membership_No!,
+          Membership_No: row.Membership_No!.toString(),
           Name: row.Name!,
           Email: row.Email!,
-          Contact_No: row.Contact_No!,
+          Contact_No: row.Contact_No!.toString(),
           Status:
             prismaMemberStatus[row.Status as keyof typeof prismaMemberStatus],
           Balance: Number(row.Balance!),
@@ -62,16 +62,15 @@ export class AdminService {
 
   async updateMember(memberID: string, payload: Partial<CreateMemberDto>) {
     const memberExists = await this.prismaService.member.findFirst({
-      where: { Membership_No: memberID },
+      where: { Membership_No: memberID.toString() },
     });
     if (!memberExists)
       throw new HttpException('Member not found', HttpStatus.NOT_FOUND);
-
+    // console.log(payload)
     return this.prismaService.member.update({
       where: { Membership_No: memberID },
       data: {
-        Sno: Number(payload.Sno),
-        Balance: Number(payload.Balance),
+        // Sno: Number(payload.Sno),
         Membership_No: payload.Membership_No,
         Name: payload.Name,
         Email: payload.Email,
@@ -177,10 +176,25 @@ export class AdminService {
       },
     });
   }
+  async updateRoomType(id: number, payload: Partial<RoomTypeDto>) {
+    // console.log(payload)
+    return await this.prismaService.roomType.update({
+      where: {id},
+      data: {
+        type: capitalizeWords(payload.type!),
+        priceMember: Number(payload.priceMember),
+        priceGuest: Number(payload.priceGuest),
+      },
+    });
+  }
 
+  async deleteRoomType(id: number) {
+    return await this.prismaService.roomType.delete({
+      where: {id}
+    });
+  }
   async getRoomTypes() {
     return await this.prismaService.roomType.findMany({
-      select: { type: true, id: true },
       orderBy: { priceGuest: 'asc' },
     });
   }

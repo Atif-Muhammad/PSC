@@ -101,9 +101,22 @@ export class AdminController {
   }
   @UseGuards(JwtAccGuard, RolesGuard)
   @Roles(RolesEnum.SUPER_ADMIN)
+  @Patch('update/roomType')
+  async updateRoomType(@Query('id') id: string, @Body() payload: Partial<RoomTypeDto>) {
+  
+    return await this.adminService.updateRoomType(Number(id), payload);
+  }
+  @UseGuards(JwtAccGuard, RolesGuard)
+  @Roles(RolesEnum.SUPER_ADMIN)
   @Get('get/roomTypes')
   async getRoomTypes() {
     return await this.adminService.getRoomTypes();
+  }
+  @UseGuards(JwtAccGuard, RolesGuard)
+  @Roles(RolesEnum.SUPER_ADMIN)
+  @Delete('delete/roomType')
+  async deleteRoomType(@Query("id") id: string) {
+    return await this.adminService.deleteRoomType(Number(id));
   }
 
   // rooms //

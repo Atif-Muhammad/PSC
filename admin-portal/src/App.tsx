@@ -32,6 +32,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { data: currentUser, isLoading } = useQuery({
     queryKey: ["currentUser"],
     queryFn: userWho,
+    enabled: true,
+    retry: 1
   });
 
   if (isLoading) return null; // or a loader component

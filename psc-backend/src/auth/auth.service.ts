@@ -73,6 +73,7 @@ export class AuthService {
     }
 
     async updateAdmin(adminID: number, payload: Partial<CreateAdminDto>) {
+        
         const admin = await this.prisma.admin.findUnique({
             where: { id: adminID },
         });
@@ -86,10 +87,12 @@ export class AuthService {
         if (payload.password) {
             updateData.password = await bcrypt.hash(payload.password, 10);
         }
-
+        // console.log(updateData)
         return this.prisma.admin.update({
             where: { id: adminID },
-            data: updateData,
+            data: updateData.updates? {
+                permissions: updateData.updates
+            }: payload,
         });
     }
 
