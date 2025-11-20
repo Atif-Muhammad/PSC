@@ -1,7 +1,8 @@
 import axios from "axios";
-const base_url = "http://localhost:3000";
+// const base_url = "http://localhost:3000";
+const base_url = "https://psc-production.up.railway.app";
 
-export const authAdmin = async (data: any) => {
+export const authAdmin = async (data: any): Promise<any> => {
   try {
     const response = await axios.post(`${base_url}/auth/login/admin`, data, {
       withCredentials: true,
@@ -11,7 +12,13 @@ export const authAdmin = async (data: any) => {
     });
     return response;
   } catch (error: any) {
-    throw new Error(error);
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
   }
 };
 export const logout = async () => {
@@ -32,7 +39,7 @@ export const logout = async () => {
   }
 };
 
-export const userWho = async () => {
+export const userWho = async (): Promise<any> => {
   try {
     const response = await axios.get(`${base_url}/auth/user-who`, {
       withCredentials: true,

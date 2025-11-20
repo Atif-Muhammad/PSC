@@ -10,30 +10,33 @@ function AuthPage() {
   const [form, setForm] = useState({ email: "", password: "" });
   const queryClient = useQueryClient();
   const navigate = useNavigate()
-  const {toast} = useToast()
+  const { toast } = useToast()
 
   const handleChange = (e) =>
     setForm({ ...form, [e.target.name]: e.target.value });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const res = await authAdmin(form);
-    if(res.status === 200){
+    try {
+      const res = await authAdmin(form);
+      if (res.status === 200) {
+        toast({
+          title: "Success",
+          description: "Logged in successfully",
+          variant: "default",
+        });
+        await queryClient.invalidateQueries({ queryKey: ["currentUser"] });
+        await queryClient.refetchQueries({ queryKey: ["currentUser"] });
+        navigate("/")
+        return;
+      }
+    } catch (error) {
       toast({
-        title: "Success",
-        description: "Logged in successfully",
-        variant: "default",
+        title: "Error",
+        description: error.message || "Failed to login",
+        variant: "destructive",
       });
-      await queryClient.invalidateQueries({queryKey: ["currentUser"]});
-      await queryClient.refetchQueries({queryKey: ["currentUser"]});
-      navigate("/")
-      return;
     }
-    toast({
-      title: "Error",
-      description: "Failed to login",
-      variant: "destructive",
-    });
   };
 
   return (
@@ -66,7 +69,7 @@ function AuthPage() {
                 />
                 <input
                   type="email"
-                  name="email"  
+                  name="email"
                   value={form.email}
                   onChange={handleChange}
                   placeholder="Email"
@@ -77,27 +80,27 @@ function AuthPage() {
             </div>
 
             {/* Password */}
-            <div className="flex flex-col gap-y-2">            
-            <label htmlFor="password">Password</label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-3 text-gray-600" size={20} />
-              <input
-                type={showPassword ? "text" : "password"}
-                name="password"
-                value={form.password}
-                onChange={handleChange}
-                placeholder="Password"
-                required
-                className="w-full pl-10 pr-10 py-2 rounded-lg border border-black/20 focus:outline-none focus:ring-2 focus:ring-black bg-white text-black"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-3 text-gray-700 hover:text-black"
-              >
-                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-              </button>
-            </div>
+            <div className="flex flex-col gap-y-2">
+              <label htmlFor="password">Password</label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-3 text-gray-600" size={20} />
+                <input
+                  type={showPassword ? "text" : "password"}
+                  name="password"
+                  value={form.password}
+                  onChange={handleChange}
+                  placeholder="Password"
+                  required
+                  className="w-full pl-10 pr-10 py-2 rounded-lg border border-black/20 focus:outline-none focus:ring-2 focus:ring-black bg-white text-black"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-3 text-gray-700 hover:text-black"
+                >
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
             </div>
 
             {/* Submit */}
