@@ -19,7 +19,7 @@ async function bootstrap() {
     //   }
     // },
     origin: 'https://psc-mu.vercel.app',
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', "OPTIONS"],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Client-Type'],
     credentials: true,
   });
