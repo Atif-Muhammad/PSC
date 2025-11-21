@@ -15,6 +15,7 @@ import {
   Building,
   CalendarDays,
   Bell,
+  Lock
 } from "lucide-react";
 
 import {
@@ -32,6 +33,8 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useQuery } from "@tanstack/react-query";
+import { userWho } from "../../config/apis";
 
 const menuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -82,6 +85,19 @@ export function AppSidebar() {
   const { open } = useSidebar();
   const location = useLocation();
 
+  const { data: currentUser } = useQuery({
+    queryKey: ["currentUser"],
+    queryFn: userWho,
+    enabled: true
+  });
+
+  if (!currentUser) return null;
+
+  const hasPermission = (title: string) => {
+    if (currentUser.role === "SUPER_ADMIN") return true;
+    return currentUser.permissions?.includes(title);
+  };
+
   return (
     <Sidebar collapsible="icon">
       <SidebarContent>
@@ -97,7 +113,7 @@ export function AppSidebar() {
             <SidebarMenu className="space-y-2">
               {menuItems.map((item) => {
                 if (item.items) {
-                  const isActive = item.items.some((sub) => location.pathname === sub.url);
+                  const isActive = item.items.some(sub => location.pathname === sub.url);
                   return (
                     <Collapsible key={item.title} defaultOpen={isActive} className="group/collapsible">
                       <SidebarMenuItem>
@@ -110,15 +126,23 @@ export function AppSidebar() {
                         </CollapsibleTrigger>
                         <CollapsibleContent>
                           <SidebarMenuSub className="ml-4 space-y-1">
-                            {item.items.map((subItem) => (
-                              <SidebarMenuSubItem key={subItem.title}>
-                                <SidebarMenuSubButton asChild>
-                                  <NavLink to={subItem.url} className="hover:bg-sidebar-accent/50" activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-medium">
-                                    <span>{subItem.title}</span>
-                                  </NavLink>
-                                </SidebarMenuSubButton>
-                              </SidebarMenuSubItem>
-                            ))}
+                            {item.items.map(subItem => {
+                              const allowed = hasPermission(subItem.title);
+                              return (
+                                <SidebarMenuSubItem key={subItem.title}>
+                                  <SidebarMenuSubButton asChild>
+                                    <NavLink
+                                      to={allowed ? subItem.url : "#"}
+                                      className={`hover:bg-sidebar-accent/50 flex items-center justify-between py-1 ${!allowed ? "opacity-50 cursor-not-allowed" : ""}`}
+                                      activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                                    >
+                                      <span>{subItem.title}</span>
+                                      {!allowed && <Lock className="h-4 w-4 ml-2" />}
+                                    </NavLink>
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              );
+                            })}
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
@@ -126,12 +150,18 @@ export function AppSidebar() {
                   );
                 }
 
+                const allowed = hasPermission(item.title);
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild tooltip={item.title}>
-                      <NavLink to={item.url} className="hover:bg-sidebar-accent/50 py-2" activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-medium">
+                      <NavLink
+                        to={allowed ? item.url : "#"}
+                        className={`hover:bg-sidebar-accent/50 py-2 flex items-center ${!allowed ? "opacity-50 cursor-not-allowed" : ""}`}
+                        activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                      >
                         {item.icon && <item.icon className="h-5 w-5" />}
                         <span>{item.title}</span>
+                        {!allowed && <Lock className="h-4 w-4 ml-2" />}
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

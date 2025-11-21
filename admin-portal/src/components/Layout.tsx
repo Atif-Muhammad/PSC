@@ -26,7 +26,7 @@ export function Layout({ children }: LayoutProps) {
         description: "Logout success",
         })
         queryClient.invalidateQueries({queryKey: ["currentUser"]});
-        navigate("/")
+        navigate("/auth")
     },
     onError:(err)=>  toast({
         title: "Error",

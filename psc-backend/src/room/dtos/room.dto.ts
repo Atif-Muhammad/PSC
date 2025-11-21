@@ -24,7 +24,7 @@ export class RoomDto {
     outOfOrderFrom?: string
 
     @IsOptional()
-    outOfOrderUntil?: string;
+    outOfOrderTo?: string;
 
     @IsOptional()
     outOfOrderReason?: string;

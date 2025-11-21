@@ -8,16 +8,20 @@ export class SchedularService {
 
   constructor(private prismaService: PrismaService) {}
 
-  @Cron(CronExpression.EVERY_10_SECONDS) 
+  @Cron(CronExpression.EVERY_10_SECONDS)
   async checkScheduledOutOfOrder() {
+    // Get current date in local time (same timezone as your database)
     const now = new Date();
+    const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+    const localDateString = localDate.toISOString().split('T')[0]; // YYYY-MM-DD
+    const localDateTime = new Date(localDateString + 'T00:00:00.000Z');
 
     // Set rooms to out-of-order when their scheduled date arrives
     const setToOutOfOrder = await this.prismaService.room.updateMany({
       where: {
         isOutOfOrder: false,
-        outOfOrderFrom: { lte: now },
-        outOfOrderTo: { gte: now },
+        outOfOrderFrom: { lte: localDateTime },
+        outOfOrderTo: { gte: localDateTime },
       },
       data: {
         isOutOfOrder: true,
@@ -28,6 +32,27 @@ export class SchedularService {
     if (setToOutOfOrder.count > 0) {
       this.logger.log(
         `Set ${setToOutOfOrder.count} rooms to out-of-order based on schedule.`,
+      );
+    }
+
+    // Also reset rooms that are past their out-of-order period
+    const resetFromOutOfOrder = await this.prismaService.room.updateMany({
+      where: {
+        isOutOfOrder: true,
+        outOfOrderTo: { lt: localDateTime },
+      },
+      data: {
+        isOutOfOrder: false,
+        isActive: true,
+        outOfOrderReason: null,
+        outOfOrderFrom: null,
+        outOfOrderTo: null,
+      },
+    });
+
+    if (resetFromOutOfOrder.count > 0) {
+      this.logger.log(
+        `Reset ${resetFromOutOfOrder.count} rooms from out-of-order status.`,
       );
     }
   }

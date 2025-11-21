@@ -32,6 +32,9 @@ import {
 import { Admin } from "@/types/admin.types";
 
 const modules = [
+  "Dashboard",
+  "Calendar",
+  "Notifications",
   "Members",
   "Admins",
   "Rooms",
@@ -60,19 +63,22 @@ export default function Admins() {
     queryKey: ["admins"],
     queryFn: getAdmins,
   });
+
   useEffect(() => {
-  if (admins?.length) {
-    const initial: Record<string, string[]> = {};
-    admins.forEach((admin) => {
-      if (admin.permissions && Array.isArray(admin.permissions.permissions)) {
-        initial[admin.id] = admin.permissions.permissions;
-      } else {
-        initial[admin.id] = [];
-      }
-    });
-    setPermissions(initial);
-  }
-}, [admins]);
+    if (admins?.length) {
+      const initial: Record<string, string[]> = {};
+      admins.forEach((admin) => {
+        if (Array.isArray(admin.permissions)) {
+          initial[admin.id] = admin.permissions;  // flat array
+        } else {
+          initial[admin.id] = [];
+        }
+      });
+      setPermissions(initial);
+    }
+  }, [admins]);
+
+
   // ✅ CREATE ADMIN
   const createMutation = useMutation({
     mutationFn: createAdmin,
@@ -145,7 +151,7 @@ export default function Admins() {
   };
   const handleSavePermissions = (admin: any) => {
     const selected = permissions[admin.id] || [];
-    updateMutation.mutate({ adminID: admin.id, updates:{permissions: selected} });
+    updateMutation.mutate({ adminID: admin.id, updates: {permissions: selected}  });
   };
 
   if (isLoading) return <p>Loading admins...</p>;
@@ -391,7 +397,7 @@ function EditAdminForm({ admin, onSubmit, onCancel }: any) {
     name: admin.name,
     email: admin.email,
     role: admin.role,
-    password: admin.password,
+    password: "",
   });
 
   return (

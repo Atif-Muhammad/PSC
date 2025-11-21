@@ -291,12 +291,13 @@ export class RoomService {
         isOutOfOrder:
           payload.isOutOfOrder == 'true' || payload.isOutOfOrder === true,
         outOfOrderReason: payload.outOfOrderReason,
-        outOfOrderTo: payload.outOfOrderUntil,
+        outOfOrderTo: payload.outOfOrderTo,
         outOfOrderFrom: new Date(),
         // Remove images field
       },
     });
   }
+
   async updateRoom(payload: RoomDto) {
     if (!payload.id)
       throw new HttpException('Room ID is required', HttpStatus.BAD_REQUEST);
@@ -314,20 +315,82 @@ export class RoomService {
     const outOfOrderFrom = payload.outOfOrderFrom
       ? new Date(payload.outOfOrderFrom)
       : null;
-    const outOfOrderTo = payload.outOfOrderUntil
-      ? new Date(payload.outOfOrderUntil)
+    const outOfOrderTo = payload.outOfOrderTo
+      ? new Date(payload.outOfOrderTo)
       : null;
+
+    // Check for reservation and booking conflicts only if setting out-of-order dates
+    if (payload.isOutOfOrder && outOfOrderFrom && outOfOrderTo) {
+      // Check for conflicting reservations
+      const conflictingReservations =
+        await this.prismaService.roomReservation.findMany({
+          where: {
+            roomId: roomId,
+            OR: [
+              {
+                reservedFrom: { lte: outOfOrderTo },
+                reservedTo: { gte: outOfOrderFrom },
+              },
+            ],
+          },
+        });
+
+      // Check for conflicting bookings
+      const conflictingBookings = await this.prismaService.roomBooking.findMany(
+        {
+          where: {
+            roomId: roomId,
+            OR: [
+              {
+                checkIn: { lte: outOfOrderTo },
+                checkOut: { gte: outOfOrderFrom },
+              },
+            ],
+          },
+        },
+      );
+
+      if (
+        conflictingReservations.length > 0 ||
+        conflictingBookings.length > 0
+      ) {
+        const conflictMessages: any[] = [];
+
+        if (conflictingReservations.length > 0) {
+          conflictMessages.push(
+            `${conflictingReservations.length} reservation(s)`,
+          );
+        }
+
+        if (conflictingBookings.length > 0) {
+          conflictMessages.push(`${conflictingBookings.length} booking(s)`);
+        }
+
+        throw new HttpException(
+          `Cannot set room as out of order. Room has ${conflictMessages.join(' and ')} during the selected period.`,
+          HttpStatus.CONFLICT,
+        );
+      }
+    }
 
     // Determine if room should be out of order now or scheduled for future
     const now = new Date();
     const shouldBeOutOfOrderNow =
-      payload.isOutOfOrder && outOfOrderFrom && outOfOrderFrom <= now;
+      payload.isOutOfOrder &&
+      outOfOrderFrom &&
+      outOfOrderFrom <= now &&
+      outOfOrderTo &&
+      outOfOrderTo >= now;
     const isScheduledForOutOfOrder =
       payload.isOutOfOrder && outOfOrderFrom && outOfOrderFrom > now;
 
-    // If room is scheduled for future maintenance, keep it active
-    // If room is currently out of order, make it inactive
-    const shouldBeActive = !shouldBeOutOfOrderNow;
+    // Room should be active if:
+    // - It's not out of order at all, OR
+    // - It's only scheduled for future maintenance
+    const shouldBeActive = !payload.isOutOfOrder || isScheduledForOutOfOrder;
+
+    // Room should be marked as out of order only if it's currently out of order
+    const shouldBeMarkedOutOfOrder = shouldBeOutOfOrderNow;
 
     return await this.prismaService.room.update({
       where: { id: roomId },
@@ -336,9 +399,9 @@ export class RoomService {
         roomTypeId: Number(payload.roomTypeId),
         description: payload.description,
         // Keep room active if it's only scheduled for future maintenance
-        isActive: shouldBeActive,
-        // Only set isOutOfOrder to true if the start date has arrived
-        isOutOfOrder: Boolean(shouldBeOutOfOrderNow),
+        isActive: !!shouldBeActive,
+        // Only set isOutOfOrder to true if it's currently out of order
+        isOutOfOrder: !!shouldBeMarkedOutOfOrder,
         outOfOrderReason: payload.outOfOrderReason,
         outOfOrderFrom: outOfOrderFrom,
         outOfOrderTo: outOfOrderTo,
@@ -525,4 +588,13 @@ export class RoomService {
       }
     }
   }
+
+  // member rooms //
+  async getMemberRoomsForDate(fromDate: string, toDate: string, roomType: number){
+    console.log(fromDate)
+    console.log(toDate)
+    console.log(roomType)
+  }
+
+
 }

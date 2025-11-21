@@ -1,4 +1,4 @@
-import { IsEmail, IsEnum, IsString } from "class-validator";
+import { IsEmail, IsEnum, IsOptional, IsString } from "class-validator";
 
 
 enum AdminRole {
@@ -18,6 +18,9 @@ export class CreateAdminDto {
     
     @IsEnum(AdminRole, {message: "Role must be either SUPER_ADMIN or ADMIN"})
     role: AdminRole;
+
+    @IsOptional()
+    updates?: any
 }
 
 

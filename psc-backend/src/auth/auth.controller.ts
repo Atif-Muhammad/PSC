@@ -68,10 +68,9 @@ export class AuthController {
     ) {
         const clientType = req.headers['client-type'] || 'web';
         const admin = await this.authService.loginAdmin(payload);
-
         // return jwt cookie if clientType == web || return jwt/json object if clientType == native/mobile
         const { access_token, refresh_token } =
-            await this.authService.generateTokens(admin);
+            await this.authService.generateTokens({...admin, permissions: Array.isArray(admin.permissions)? admin.permissions : [] });
         if (clientType === 'web') {
             res.cookie('access_token', access_token, {
                 httpOnly: true,
@@ -114,14 +113,15 @@ export class AuthController {
         @Res({ passthrough: true }) res: Response,
     ) {
         const clientType = req.headers['client-type'] || 'web';
-        const { id, name, email, role } = req.user as {
+        const { id, name, email, role, permissions } = req.user as {
             id: string | number;
             name: string;
             email: string;
             role: string;
+            permissions?: any[];
         };
         const { access_token, refresh_token } =
-            await this.authService.refreshTokens({ id, name, email, role });
+            await this.authService.refreshTokens({ id, name, email, role, permissions: Array.isArray(permissions)? permissions : [] });
         // for web
         if (clientType === 'web') {
             res.cookie('access_token', access_token, {
@@ -145,9 +145,9 @@ export class AuthController {
     @UseGuards(JwtAccGuard)
     @Get('user-who')
     async userWho(
-        @Req() req: { user: { id: string | undefined; role: string | undefined } },
+        @Req() req: { user: { id: string | undefined; role: string | undefined, permissions: any[] } },
     ) {
-        return { id: req.user?.id, role: req.user?.role };
+        return { id: req.user?.id, role: req.user?.role, permissions: req.user?.permissions };
     }
 
     // members

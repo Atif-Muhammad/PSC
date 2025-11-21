@@ -1,6 +1,6 @@
 import axios from "axios";
-// const base_url = "http://localhost:3000";
-const base_url = "https://psc-production.up.railway.app";
+const base_url = "http://localhost:3000";
+// const base_url = "https://psc-production.up.railway.app";
 
 export const authAdmin = async (data: any): Promise<any> => {
   try {
@@ -67,7 +67,7 @@ export const getAdmins = async (): Promise<any> => {
     throw new Error(error);
   }
 };
-export const createAdmin = async (data: any) => {
+export const createAdmin = async (data: any): Promise<any> => {
   try {
     const response = await axios.post(`${base_url}/auth/create/admin`, data, {
       withCredentials: true,
@@ -89,7 +89,7 @@ export const updateAdmin = async ({
 }: {
   adminID: any;
   updates: any;
-}) => {
+}): Promise<any> => {
   try {
     // console.log(updates)
     const response = await axios.patch(
@@ -109,7 +109,7 @@ export const updateAdmin = async ({
   }
 };
 
-export const deleteAdmin = async (adminID: any) => {
+export const deleteAdmin = async (adminID: any): Promise<any> => {
   try {
     const response = await axios.delete(
       `${base_url}/auth/remove/admin?adminID=${adminID}`,

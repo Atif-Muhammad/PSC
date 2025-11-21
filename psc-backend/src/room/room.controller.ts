@@ -186,4 +186,15 @@ export class RoomController {
   async deleteRoom(@Query('id') id: string) {
     return await this.room.deleteRoom(Number(id));
   }
+
+
+  // member rooms //
+  @UseGuards(JwtAccGuard)
+  @Get('member/get/rooms/forDate')
+  async getMemberRoomsForDate(@Query("fromDate") fromDate: string, @Query("toDate") toDate: string, @Query('roomType') roomType: string) {
+    return await this.room.getMemberRoomsForDate(fromDate, toDate, Number(roomType));
+  }
+
+
+
 }

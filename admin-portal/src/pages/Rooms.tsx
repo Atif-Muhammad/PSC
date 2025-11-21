@@ -21,6 +21,7 @@ import {
   Calendar,
   Clock,
   Info,
+  Filter,
 } from "lucide-react";
 import {
   Dialog,
@@ -61,6 +62,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface RoomReservation {
   id: string;
@@ -95,6 +105,7 @@ export default function Rooms() {
   const [editRoom, setEditRoom] = useState<Room | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<Room | null>(null);
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [typeFilter, setTypeFilter] = useState("ALL");
   const [reserveDialog, setReserveDialog] = useState(false);
   const [selectedRooms, setSelectedRooms] = useState<string[]>([]);
   const [reserveDates, setReserveDates] = useState({
@@ -102,7 +113,6 @@ export default function Rooms() {
     to: "",
   });
 
-  // Form state
   // Form state
   const [form, setForm] = useState({
     roomNumber: "",
@@ -252,7 +262,7 @@ export default function Rooms() {
       isActive: form.isActive,
       isOutOfOrder: form.isOutOfOrder,
       outOfOrderReason: form.isOutOfOrder ? form.outOfOrderReason : undefined,
-      outOfOrderFrom: form.isOutOfOrder ? form.outOfOrderFrom : undefined, // Add this
+      outOfOrderFrom: form.isOutOfOrder ? form.outOfOrderFrom : undefined,
       outOfOrderTo: form.isOutOfOrder ? form.outOfOrderTo : undefined,
       ...(editRoom && { id: editRoom.id }),
     };
@@ -452,18 +462,27 @@ export default function Rooms() {
     }
   }, [reserveDates.from, reserveDates.to, rooms]);
 
-  const filteredRooms =
-    statusFilter === "ALL"
-      ? rooms
-      : rooms.filter((r: Room) =>
-        statusFilter === "ACTIVE"
-          ? r.isActive && !r.isOutOfOrder && !r.isReserved // Active rooms are those not currently out of order
-          : statusFilter === "OUT_OF_ORDER"
-            ? r.isOutOfOrder // Only show currently out of order rooms
-            : statusFilter === "RESERVED"
-              ? r.isReserved
-              : !r.isActive // Inactive rooms (manually set to inactive)
-      );
+  // Get unique room types for filter
+  const roomTypes = [...new Set(rooms.map((room: Room) => room.roomType.type))];
+
+  // Filter rooms based on status and type
+  const filteredRooms = rooms.filter((room: Room) => {
+    // Status filter
+    const statusMatch =
+      statusFilter === "ALL" ||
+      (statusFilter === "ACTIVE"
+        ? room.isActive && !room.isOutOfOrder && !room.isReserved
+        : statusFilter === "OUT_OF_ORDER"
+          ? room.isOutOfOrder
+          : statusFilter === "RESERVED"
+            ? room.isReserved
+            : !room.isActive);
+
+    // Type filter
+    const typeMatch = typeFilter === "ALL" || room.roomType.type === typeFilter;
+
+    return statusMatch && typeMatch;
+  });
 
   // Group rooms by type for reserve dialog
   const roomsByType = rooms.reduce((acc: any, room: Room) => {
@@ -536,6 +555,15 @@ export default function Rooms() {
       );
   };
 
+  // Clear all filters
+  const clearFilters = () => {
+    setStatusFilter("ALL");
+    setTypeFilter("ALL");
+  };
+
+  // Check if any filter is active
+  const hasActiveFilters = statusFilter !== "ALL" || typeFilter !== "ALL";
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -548,18 +576,74 @@ export default function Rooms() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All Rooms</SelectItem>
-              <SelectItem value="ACTIVE">Active & Available</SelectItem>
-              <SelectItem value="OUT_OF_ORDER">Out of Order</SelectItem>
-              <SelectItem value="RESERVED">Currently Reserved</SelectItem>
-              <SelectItem value="INACTIVE">Inactive</SelectItem>
-            </SelectContent>
-          </Select>
+          {/* Filter Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <Filter className="h-4 w-4" />
+                Filters
+                {hasActiveFilters && (
+                  <Badge variant="secondary" className="ml-1 h-5 w-5 p-0 flex items-center justify-center">
+                    !
+                  </Badge>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56">
+              <DropdownMenuLabel>Filter Rooms</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <div className="p-2 space-y-4">
+                  {/* Status Filter */}
+                  <div>
+                    <Label className="text-sm font-medium">Status</Label>
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                      <SelectTrigger className="mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All Status</SelectItem>
+                        <SelectItem value="ACTIVE">Active & Available</SelectItem>
+                        <SelectItem value="OUT_OF_ORDER">Out of Order</SelectItem>
+                        <SelectItem value="RESERVED">Currently Reserved</SelectItem>
+                        <SelectItem value="INACTIVE">Inactive</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Type Filter */}
+                  <div>
+                    <Label className="text-sm font-medium">Room Type</Label>
+                    <Select value={typeFilter} onValueChange={setTypeFilter}>
+                      <SelectTrigger className="mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All Types</SelectItem>
+                        {roomTypes.map((type: any) => (
+                          <SelectItem key={type} value={type}>
+                            {type}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Clear Filters */}
+                  {hasActiveFilters && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearFilters}
+                      className="w-full text-xs"
+                    >
+                      Clear Filters
+                    </Button>
+                  )}
+                </div>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <Button
             variant="outline"
@@ -740,6 +824,45 @@ export default function Rooms() {
         </div>
       </div>
 
+      {/* Active Filters Display */}
+      {hasActiveFilters && (
+        <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
+          <span className="text-sm font-medium">Active Filters:</span>
+          {statusFilter !== "ALL" && (
+            <Badge variant="secondary" className="gap-1">
+              Status: {statusFilter === "ACTIVE" ? "Active & Available" :
+                statusFilter === "OUT_OF_ORDER" ? "Out of Order" :
+                  statusFilter === "RESERVED" ? "Currently Reserved" : "Inactive"}
+              <button
+                onClick={() => setStatusFilter("ALL")}
+                className="ml-1 hover:text-destructive"
+              >
+                ×
+              </button>
+            </Badge>
+          )}
+          {typeFilter !== "ALL" && (
+            <Badge variant="secondary" className="gap-1">
+              Type: {typeFilter}
+              <button
+                onClick={() => setTypeFilter("ALL")}
+                className="ml-1 hover:text-destructive"
+              >
+                ×
+              </button>
+            </Badge>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={clearFilters}
+            className="ml-auto text-xs h-7"
+          >
+            Clear All
+          </Button>
+        </div>
+      )}
+
       <Card>
         <CardContent className="p-0">
           {roomsLoading ? (
@@ -751,11 +874,19 @@ export default function Rooms() {
             </div>
           ) : filteredRooms?.length === 0 ? (
             <div className="text-center py-12">
-              <div className="text-muted-foreground mb-2">No rooms found</div>
-              <Button onClick={() => setIsAddOpen(true)} className="gap-2">
-                <Plus className="h-4 w-4" />
-                Add Your First Room
-              </Button>
+              <div className="text-muted-foreground mb-2">
+                {hasActiveFilters ? "No rooms match your filters" : "No rooms found"}
+              </div>
+              {hasActiveFilters ? (
+                <Button onClick={clearFilters} className="gap-2">
+                  Clear Filters
+                </Button>
+              ) : (
+                <Button onClick={() => setIsAddOpen(true)} className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Add Your First Room
+                </Button>
+              )}
             </div>
           ) : (
             <Table>
@@ -1089,20 +1220,46 @@ export default function Rooms() {
                       {typeRooms.map((room: Room) => {
                         const isReservedForDates = isRoomReservedForDates(room);
                         const hasOverlap = hasOverlappingReservations(room);
-                        const isAvailable = !room.isOutOfOrder && room.isActive;
-                        const upcomingReservations =
-                          getUpcomingReservations(room);
+
+                        // Check if room is out of order during the selected dates
+                        const isOutOfOrderForSelectedDates = (() => {
+                          if (!reserveDates.from || !reserveDates.to) return false;
+
+                          const selectedFrom = new Date(reserveDates.from);
+                          const selectedTo = new Date(reserveDates.to);
+
+                          // If room has out-of-order dates, check if selected dates overlap
+                          if (room.outOfOrderFrom && room.outOfOrderTo) {
+                            const outOfOrderFrom = new Date(room.outOfOrderFrom);
+                            const outOfOrderTo = new Date(room.outOfOrderTo);
+                            return (selectedFrom <= outOfOrderTo && selectedTo >= outOfOrderFrom);
+                          }
+
+                          return false;
+                        })();
+
+                        const upcomingReservations = getUpcomingReservations(room);
+
+                        // Determine if checkbox should be disabled
+                        // Room is disabled ONLY if:
+                        // 1. It has overlapping reservations (and not already reserved for these exact dates), OR
+                        // 2. Selected dates conflict with out-of-order period
+                        const isCheckboxDisabled =
+                          (hasOverlap && !isReservedForDates) ||
+                          isOutOfOrderForSelectedDates;
 
                         return (
                           <div
                             key={room.id}
                             className={`flex items-center space-x-3 p-3 border rounded-lg ${hasOverlap
-                              ? "bg-orange-50 border-orange-200"
-                              : isReservedForDates
-                                ? "bg-blue-50 border-blue-200"
-                                : !isAvailable
-                                  ? "bg-gray-50 border-gray-200"
-                                  : "bg-white border-gray-200"
+                                ? "bg-orange-50 border-orange-200"
+                                : isReservedForDates
+                                  ? "bg-blue-50 border-blue-200"
+                                  : isOutOfOrderForSelectedDates
+                                    ? "bg-red-50 border-red-200"
+                                    : !room.isActive
+                                      ? "bg-gray-50 border-gray-200"
+                                      : "bg-white border-gray-200"
                               }`}
                           >
                             <Checkbox
@@ -1110,14 +1267,16 @@ export default function Rooms() {
                               onCheckedChange={(checked) =>
                                 handleRoomSelection(room.id, checked as boolean)
                               }
-                              disabled={!isAvailable || (hasOverlap && !isReservedForDates)}
+                              disabled={isCheckboxDisabled}
                             />
-                            {/* In the reserve dialog room cards, update the status messages */}
                             <div className="flex-1 min-w-0">
                               <div className="font-medium flex items-center gap-2">
                                 Room {room.roomNumber}
                                 {hasOverlap && (
                                   <AlertCircle className="h-4 w-4 text-orange-500" />
+                                )}
+                                {isOutOfOrderForSelectedDates && (
+                                  <AlertCircle className="h-4 w-4 text-red-500" />
                                 )}
                               </div>
                               <div className="text-sm text-muted-foreground truncate">
@@ -1131,6 +1290,19 @@ export default function Rooms() {
                                   Has overlapping reservations (cannot reserve)
                                 </div>
                               )}
+
+                              {isOutOfOrderForSelectedDates && (
+                                <div className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                                  <AlertCircle className="h-3 w-3" />
+                                  {room.isOutOfOrder ? 'Currently out of order' : 'Scheduled for maintenance'} during selected dates
+                                  {room.outOfOrderFrom && room.outOfOrderTo && (
+                                    <span>
+                                      ({new Date(room.outOfOrderFrom).toLocaleDateString()} - {new Date(room.outOfOrderTo).toLocaleDateString()})
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+
                               {isReservedForDates && (
                                 <div className="text-xs text-blue-600 mt-1 flex items-center gap-1">
                                   <CheckCircle className="h-3 w-3" />
@@ -1138,26 +1310,35 @@ export default function Rooms() {
                                 </div>
                               )}
 
-                              {/* Show current out-of-order status */}
-                              {room.isOutOfOrder && (
-                                <div className="text-xs text-red-600 mt-1 flex items-center gap-1">
-                                  <AlertCircle className="h-3 w-3" />
-                                  Out of order{room.outOfOrderTo && ` until ${new Date(room.outOfOrderTo).toLocaleDateString()}`}
-                                </div>
-                              )}
-
-                              {/* Show scheduled maintenance (room is still available for booking) */}
-                              {!room.isOutOfOrder && room.outOfOrderFrom && new Date(room.outOfOrderFrom) > new Date() && (
+                              {/* Show inactive but available status */}
+                              {!room.isActive && !isOutOfOrderForSelectedDates && !isCheckboxDisabled && (
                                 <div className="text-xs text-yellow-600 mt-1 flex items-center gap-1">
-                                  <Clock className="h-3 w-3" />
-                                  Scheduled maintenance: {new Date(room.outOfOrderFrom).toLocaleDateString()} - {new Date(room.outOfOrderTo!).toLocaleDateString()}
+                                  <AlertCircle className="h-3 w-3" />
+                                  Inactive but available for selected dates
                                 </div>
                               )}
 
-                              {/* Show inactive status (only if not scheduled for maintenance) */}
-                              {!room.isActive && !room.outOfOrderFrom && (
-                                <div className="text-xs text-gray-600 mt-1">
-                                  Inactive
+                              {/* Show current out-of-order status but available for selected dates */}
+                              {room.isOutOfOrder && !isOutOfOrderForSelectedDates && !isCheckboxDisabled && (
+                                <div className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                                  <CheckCircle className="h-3 w-3" />
+                                  Available for selected dates (currently out of order for other dates)
+                                </div>
+                              )}
+
+                              {/* Show scheduled maintenance but available for selected dates */}
+                              {!room.isOutOfOrder && room.outOfOrderFrom && new Date(room.outOfOrderFrom) > new Date() && !isOutOfOrderForSelectedDates && !isCheckboxDisabled && (
+                                <div className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                                  <CheckCircle className="h-3 w-3" />
+                                  Available for selected dates (scheduled maintenance for other dates)
+                                </div>
+                              )}
+
+                              {/* Show if room is fully available */}
+                              {room.isActive && !room.isOutOfOrder && !room.outOfOrderFrom && !isCheckboxDisabled && !isReservedForDates && (
+                                <div className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                                  <CheckCircle className="h-3 w-3" />
+                                  Available for reservation
                                 </div>
                               )}
 
@@ -1170,11 +1351,15 @@ export default function Rooms() {
                             </div>
                             <Badge
                               variant={
-                                room.isOutOfOrder
+                                isOutOfOrderForSelectedDates
                                   ? "destructive"
-                                  : room.isReserved
+                                  : room.isOutOfOrder
                                     ? "secondary"
-                                    : "default"
+                                    : room.isReserved
+                                      ? "secondary"
+                                      : !room.isActive
+                                        ? "secondary"
+                                        : "default"
                               }
                             >
                               {getRoomStatus(room)}
