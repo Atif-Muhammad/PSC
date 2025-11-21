@@ -23,7 +23,8 @@ import AffiliatedClubs from "./pages/AffiliatedClubs";
 import Notifications from "./pages/Notifications";
 import Calendar from "./pages/Calendar";
 import NotFound from "./pages/NotFound";
-import AuthPage from "./pages/AuthPage"; // 👈 add your login/signup page here
+import AuthPage from "./pages/AuthPage"; 
+import RoomMemberBooking from "./pages/test/RoomBookingMember.tsx"
 import { userWho } from "../config/apis.ts";
 
 const queryClient = new QueryClient();
@@ -55,6 +56,7 @@ function App() {
         <Sonner />
         <BrowserRouter>
           <Routes>
+            <Route path="test/booking/room/member" element={<RoomMemberBooking/>}/>
             {/* Public Routes */}
             <Route path="/auth" element={<AuthPage />} />
 

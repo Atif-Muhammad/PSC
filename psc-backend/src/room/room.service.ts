@@ -1,4 +1,9 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { capitalizeWords } from 'src/utils/CapitalizeFirst';
@@ -419,6 +424,15 @@ export class RoomService {
     reserveFrom?: string,
     reserveTo?: string,
   ) {
+
+    const onhold = await this.prismaService.room.findFirst({
+      where: {
+        id: { in: roomIds },
+        onHold: true,
+      },
+    });
+    if(onhold) return new HttpException('Room is currently on hold', HttpStatus.CONFLICT);
+
     // Validate dates if reserving
     if (reserve) {
       if (!reserveFrom || !reserveTo) {
@@ -480,6 +494,7 @@ export class RoomService {
                 checkIn: { lte: fromDate },
                 checkOut: { gte: toDate },
               },
+            
             ],
           },
           include: { room: { select: { roomNumber: true } } },
@@ -590,11 +605,69 @@ export class RoomService {
   }
 
   // member rooms //
-  async getMemberRoomsForDate(fromDate: string, toDate: string, roomType: number){
-    console.log(fromDate)
-    console.log(toDate)
-    console.log(roomType)
+  async getMemberRoomsForDate(
+    fromDate: string,
+    toDate: string,
+    roomType: number,
+  ) {
+    // check room type
+    const typeExists = await this.prismaService.roomType.findFirst({
+      where: { id: roomType },
+    });
+    if (!typeExists) return new NotFoundException(`room type not found`);
+
+    // return true if rooms are available for the given dates and roomtpye
+
+    return await this.prismaService.room.findMany({
+      where: {
+        roomTypeId: roomType,
+        isActive: true,
+        onHold: false,
+        // Room must NOT be in out-of-order currently
+        OR: [
+          {
+            isOutOfOrder: false,
+          },
+          {
+            // Out-of-order exists, but does NOT overlap with selected date range
+            AND: [
+              {
+                outOfOrderFrom: { gt: new Date(toDate) },
+              },
+              {
+                outOfOrderTo: { lt: new Date(fromDate) },
+              },
+            ],
+          },
+          {
+            // Room has NO out-of-order schedule
+            outOfOrderFrom: null,
+            outOfOrderTo: null,
+          },
+        ],
+
+        // Conflict check: reservations must NOT overlap
+        reservations: {
+          none: {
+            AND: [
+              { reservedFrom: { lte: new Date(toDate) } },
+              { reservedTo: { gte: new Date(fromDate) } },
+            ],
+          },
+        },
+
+        // Conflict check: roomBookings must NOT overlap
+        bookings: {
+          none: {
+            AND: [
+              { checkIn: { lte: new Date(toDate) } },
+              { checkOut: { gte: new Date(fromDate) } },
+            ],
+          },
+        },
+      },
+    });
   }
 
-
+  
 }

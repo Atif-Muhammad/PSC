@@ -95,3 +95,50 @@ create super admin ✔
     -> manage admin via super admin  ✔
         -> create member(s) via admin and super admin ✔
             -> manage member via admin and super admin (inactive/suspend) ✔
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+gen invoice response
+{
+    "ResponseCode": "00",
+    "ResponseMessage": "Invoice Created Successfully",
+    "Data": {
+        "ConsumerNumber": "7701234567",
+        "InvoiceNumber": "INV-UO20EJIMS",
+        "DueDate": "2025-11-21T12:01:09.373Z",
+        "Amount": "80000",
+        "Instructions": "Complete payment within 3 minutes to confirm your booking",
+        "PaymentChannels": [
+            "JazzCash",
+            "Easypaisa",
+            "HBL",
+            "Meezan",
+            "UBL",
+            "ATM",
+            "Internet Banking"
+        ],
+        "BookingSummary": {
+            "RoomType": "Suite",
+            "CheckIn": "2025-11-23",
+            "CheckOut": "2025-11-24",
+            "Nights": 1,
+            "Rooms": 2,
+            "Adults": 1,
+            "Children": 0,
+            "PricePerNight": "40000",
+            "TotalAmount": "80000",
+            "HoldExpiresAt": "2025-11-21T12:01:09.373Z"
+        }
+    },
+    "TemporaryData": {
+        "reservationIds": [
+            8,
+            10
+        ],
+        "holdExpiry": "2025-11-21T12:01:09.373Z",
+        "roomIds": [
+            8,
+            10
+        ]
+    }
+}

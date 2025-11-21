@@ -173,31 +173,43 @@ model SportSubscription {
 }
 
 model PaymentVoucher {
-  id             Int      @id @default(autoincrement())
-  voucher_no     String   @unique @default(cuid())
-
+  id             Int        @id @default(autoincrement())
+  voucher_no     String     @unique @default(cuid())
+  
   booking_type   BookingType
   booking_id     Int
 
   membership_no  String
-  member         Member   @relation(fields: [membership_no], references: [Membership_No])
+  member         Member      @relation(fields: [membership_no], references: [Membership_No])
 
-  amount         Decimal  @db.Decimal(12, 2)
-  payment_mode   PaymentMode @default(CASH)
-  transaction_id String?
+  amount         Decimal      @db.Decimal(12, 2)
+
+  // Payment origin & mode
+  payment_mode   PaymentMode  @default(CASH)   
+  channel        Channel?                       
+
+  // Gateway details (only for ONLINE)
+  invoice_no     String?                       // KuickPay InvoiceNumber
+  transaction_id String?                       // KuickPay TransactionId
+  consumer_id    String?                       // KuickPay ConsumerId
+  gateway_meta   Json?                         // Full webhook data from KuickPay
+
   remarks        String?
 
   voucher_type   VoucherType
   status         VoucherStatus @default(PENDING)
 
-
-
-  issued_at      DateTime @default(now())
-  issued_by      String?
+  issued_at      DateTime      @default(now())
+  issued_by      String?                        // admin name OR "system"
 
   @@index([booking_type, booking_id])
   @@index([membership_no])
   @@index([voucher_no])
+}
+
+enum Channel {
+  ADMIN_PORTAL
+  KUICKPAY
 }
 
 enum BookingType {
@@ -269,6 +281,8 @@ model Room {
   isBooked Boolean       @default(false)
   bookings RoomBooking[]
   reservations RoomReservation[]
+  onHold Boolean      @default(false)
+  holdExpiry DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

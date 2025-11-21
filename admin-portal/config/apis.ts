@@ -565,6 +565,49 @@ export const deleteRoom = async (id: string): Promise<any> => {
     throw { message, status: error.response?.status || 500 };
   }
 };
+
+// member api
+export const checkAvailRooms = async (roomTypeId: any, dates: {from: string, to: string}): Promise<any> => {
+  try {
+    const response = await axios.post(
+      `${base_url}/room/member/check/rooms/available?roomType=${roomTypeId}`, dates,
+      {
+        withCredentials: true,
+      }
+    );
+    console.log(response.data)
+    return response.data;
+  } catch (error: any) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const generateInvoice = async (roomTypeId: any, bookingDate: any): Promise<any> => {
+  try {
+    const response = await axios.post(
+      `${base_url}/booking/member/generate/invoice/room?roomType=${roomTypeId}`, bookingDate,
+      {
+        withCredentials: true,
+      }
+    );
+    return response;
+  } catch (error: any) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
 // halls
 
 export const createHall = async (data: any): Promise<any> => {

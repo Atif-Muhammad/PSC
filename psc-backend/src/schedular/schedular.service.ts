@@ -10,50 +10,94 @@ export class SchedularService {
 
   @Cron(CronExpression.EVERY_10_SECONDS)
   async checkScheduledOutOfOrder() {
-    // Get current date in local time (same timezone as your database)
-    const now = new Date();
-    const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
-    const localDateString = localDate.toISOString().split('T')[0]; // YYYY-MM-DD
-    const localDateTime = new Date(localDateString + 'T00:00:00.000Z');
+    const MAX_RETRIES = 5;
+    let retries = 0;
 
-    // Set rooms to out-of-order when their scheduled date arrives
-    const setToOutOfOrder = await this.prismaService.room.updateMany({
-      where: {
-        isOutOfOrder: false,
-        outOfOrderFrom: { lte: localDateTime },
-        outOfOrderTo: { gte: localDateTime },
-      },
-      data: {
-        isOutOfOrder: true,
-        isActive: false,
-      },
-    });
+    while (retries < MAX_RETRIES) {
+      try {
+        await this.prismaService.$transaction(async (tx) => {
+          const now = new Date();
+          const localDate = new Date(
+            now.getTime() - now.getTimezoneOffset() * 60000,
+          );
+          const localDateString = localDate.toISOString().split('T')[0];
+          const localDateTime = new Date(localDateString + 'T00:00:00.000Z');
 
-    if (setToOutOfOrder.count > 0) {
-      this.logger.log(
-        `Set ${setToOutOfOrder.count} rooms to out-of-order based on schedule.`,
-      );
+          // STEP 1 — mark rooms out-of-order
+          const setToOutOfOrder = await tx.room.updateMany({
+            where: {
+              isOutOfOrder: false,
+              outOfOrderFrom: { lte: localDateTime },
+              outOfOrderTo: { gte: localDateTime },
+            },
+            data: {
+              isOutOfOrder: true,
+              isActive: false,
+            },
+          });
+
+          if (setToOutOfOrder.count > 0) {
+            this.logger.log(
+              `Set ${setToOutOfOrder.count} rooms to out-of-order.`,
+            );
+          }
+
+          // STEP 2 — reset rooms
+          const resetFromOutOfOrder = await tx.room.updateMany({
+            where: {
+              isOutOfOrder: true,
+              outOfOrderTo: { lt: localDateTime },
+            },
+            data: {
+              isOutOfOrder: false,
+              isActive: true,
+              outOfOrderReason: null,
+              outOfOrderFrom: null,
+              outOfOrderTo: null,
+            },
+          });
+
+          if (resetFromOutOfOrder.count > 0) {
+            this.logger.log(`Reset ${resetFromOutOfOrder.count} rooms.`);
+          }
+        });
+
+        // Success: exit retry loop
+        return;
+      } catch (err) {
+        if (err.code === 'P2034') {
+          retries++;
+          this.logger.warn(
+            `Deadlock detected. Retry ${retries}/${MAX_RETRIES}...`,
+          );
+          await new Promise((res) => setTimeout(res, 200)); // small delay
+        } else {
+          throw err;
+        }
+      }
     }
 
-    // Also reset rooms that are past their out-of-order period
-    const resetFromOutOfOrder = await this.prismaService.room.updateMany({
+    this.logger.error('Failed after maximum deadlock retries.');
+  }
+
+  // hold expiry check
+  @Cron(CronExpression.EVERY_10_SECONDS)
+  async checkRoomHoldExpiry() {
+    this.logger.log(`Checking for expired room holds...`);
+    const now = new Date();
+
+    const expiredHolds = await this.prismaService.room.updateMany({
       where: {
-        isOutOfOrder: true,
-        outOfOrderTo: { lt: localDateTime },
+        onHold: true,
+        holdExpiry: { lt: now },
       },
       data: {
-        isOutOfOrder: false,
-        isActive: true,
-        outOfOrderReason: null,
-        outOfOrderFrom: null,
-        outOfOrderTo: null,
+        onHold: false,
+        holdExpiry: null,
       },
     });
-
-    if (resetFromOutOfOrder.count > 0) {
-      this.logger.log(
-        `Reset ${resetFromOutOfOrder.count} rooms from out-of-order status.`,
-      );
+    if (expiredHolds.count > 0) {
+      this.logger.log(`Released ${expiredHolds.count} expired room holds.`);
     }
   }
 

@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+    Body,
+    Controller,
+    Delete,
+    Get,
+    Patch,
+    Post,
+    Query,
+    UseGuards,
+} from '@nestjs/common';
 import { BookingService } from './booking.service';
 import { JwtAccGuard } from 'src/common/guards/jwt-access.guard';
 import { RolesGuard } from 'src/common/guards/roles.guard';
@@ -108,5 +117,16 @@ export class BookingController {
             return this.bookingService.dBookingLawn(Number(bookID.bookID));
         if (bookingFor === 'photoshoots')
             return this.bookingService.dBookingPhotoshoot(Number(bookID.bookID));
+    }
+
+    // generate invoice
+
+    @UseGuards(JwtAccGuard)
+    @Post('member/generate/invoice/room')
+    async generateInvoice(
+        @Query('roomType') roomType: string,
+        @Body() bookingData: any,
+    ) {
+        return await this.bookingService.genInvoiceRoom(Number(roomType), bookingData);
     }
 }
