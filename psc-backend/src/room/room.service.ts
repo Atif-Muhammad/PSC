@@ -435,8 +435,6 @@ export class RoomService {
   }
 
 
-  // reserve room(s)
-
   async reserveRooms(
     roomIds: number[],
     reserve: boolean,

@@ -1263,10 +1263,10 @@ export class BookingService {
       });
     }
 
-    // ── FIXED: UPDATE / CREATE PAYMENT VOUCHER LOGIC ─────
-    if (paid > 0) {
+    // ── FIXED: CREATE NEW PAYMENT VOUCHER FOR EACH PAYMENT UPDATE ─────
+    if (paidDiff > 0) {
       let voucherType: VoucherType;
-      let voucherAmount = paid;
+      let voucherAmount = paidDiff;
 
       // Calculate remaining payment before update
       const remainingPaymentBeforeUpdate = Number(existing.pendingAmount);
@@ -1276,64 +1276,52 @@ export class BookingService {
         paymentStatus === ('PAID' as any) &&
         remainingPaymentBeforeUpdate > 0
       ) {
-        // This is the final payment - use the actual remaining amount instead of total paid
+        // This is the final payment - use the actual remaining amount instead of the difference
         voucherAmount = remainingPaymentBeforeUpdate;
       }
 
+      // Determine voucher type based on payment status
       if (paymentStatus === ('PAID' as any)) {
-        voucherType = VoucherType.FULL_PAYMENT;
+          voucherType = VoucherType.FULL_PAYMENT; // Full payment in one go
+        
       } else {
-        voucherType = VoucherType.HALF_PAYMENT;
+        voucherType = VoucherType.HALF_PAYMENT; // Partial payment
       }
 
-      const existingVoucher = await this.prismaService.paymentVoucher.findFirst(
-        {
-          where: {
-            booking_type: 'HALL',
-            booking_id: Number(id),
-          },
-        },
-      );
-
-      // Determine remarks based on payment type
-      const isFinalPayment =
-        paymentStatus === ('PAID' as any) && remainingPaymentBeforeUpdate > 0;
-      const remarks = `${hall.name} | ${isFinalPayment ? 'Final payment' : 'Booking'} | ${booking.toLocaleDateString()} (${eventType}) - ${normalizedEventTime}`;
-
-      if (existingVoucher) {
-        await this.prismaService.paymentVoucher.update({
-          where: { id: existingVoucher.id },
-          data: {
-            amount: voucherAmount,
-            payment_mode: paymentMode as any,
-            voucher_type: voucherType,
-            remarks: remarks,
-          },
-        });
+      // Determine remarks based on payment type and amount
+      let paymentDescription = '';
+      if (paymentStatus === ('PAID' as any)) {
+        paymentDescription = 'Full payment';
       } else {
-        await this.prismaService.paymentVoucher.create({
-          data: {
-            booking_type: 'HALL',
-            booking_id: updated.id,
-            membership_no: membershipNo,
-            amount: voucherAmount,
-            payment_mode: paymentMode as any,
-            voucher_type: voucherType,
-            status: VoucherStatus.CONFIRMED,
-            issued_by: 'admin',
-            remarks: remarks,
-          },
-        });
+        paymentDescription = `Payment of PKR ${voucherAmount.toLocaleString()}`;
       }
-    } else {
-      // Delete voucher if payment is now unpaid
-      await this.prismaService.paymentVoucher.deleteMany({
-        where: {
+
+      const remarks = `${hall.name} | ${paymentDescription} | ${booking.toLocaleDateString()} (${eventType}) - ${normalizedEventTime}`;
+
+      // Always create a new voucher for each payment update
+      await this.prismaService.paymentVoucher.create({
+        data: {
           booking_type: 'HALL',
-          booking_id: Number(id),
+          booking_id: updated.id,
+          membership_no: membershipNo,
+          amount: voucherAmount,
+          payment_mode: paymentMode as any,
+          voucher_type: voucherType,
+          status: VoucherStatus.CONFIRMED,
+          issued_by: 'admin',
+          remarks: remarks,
+          issued_at: new Date(),
         },
       });
+
+      // If changing from unpaid to paid/half-paid and there were existing vouchers,
+      // we don't delete them - we keep the history
+    } else if (paid === 0 && prevPaid > 0) {
+      // If payment is set to unpaid but there was previous payment,
+      // we don't delete vouchers to maintain audit trail
+      // The vouchers remain as historical records
     }
+    // Note: We don't delete vouchers when payment decreases to maintain audit trail
 
     return updated;
   }

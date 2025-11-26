@@ -497,6 +497,8 @@ export default function HallBookings() {
   };
 
   const handleUpdate = () => {
+    
+    console.log(editForm)
     // Enhanced validation that handles null/undefined values
     const requiredFields = [
       { field: editForm.membershipNo, name: "Membership" },
@@ -637,8 +639,9 @@ export default function HallBookings() {
   // Update edit form when editBooking changes
   useEffect(() => {
     if (editBooking) {
+      console.log(editBooking)
       const newEditForm: HallBookingForm = {
-        membershipNo: editBooking.Membership_No || "",
+        membershipNo: editBooking.member?.Membership_No || "",
         memberName: editBooking.memberName || editBooking.member?.Name || "",
         memberId: editBooking.memberId
           ? editBooking.memberId.toString()
@@ -1149,7 +1152,7 @@ export default function HallBookings() {
             <DialogTitle>Payment Vouchers</DialogTitle>
           </DialogHeader>
           <div className="py-4">
-            <div className="mb-6 p-4 bg-muted/50 rounded-lg">
+            {/* <div className="mb-6 p-4 bg-muted/50 rounded-lg">
               <h3 className="font-semibold mb-2">Booking Information</h3>
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div>Booking ID:</div>
@@ -1175,7 +1178,7 @@ export default function HallBookings() {
               </div>
             </div>
 
-            <h3 className="font-semibold mb-4">Generated Vouchers</h3>
+            <h3 className="font-semibold mb-4">Generated Vouchers</h3> */}
 
             {isLoadingVouchers ? (
               <div className="flex justify-center items-center py-8">
@@ -1191,6 +1194,7 @@ export default function HallBookings() {
               </div>
             ) : (
               <div className="space-y-4 max-h-96 overflow-y-auto">
+                {/* {console.log(vouchers)} */}
                 {vouchers.map((voucher) => (
                   <div
                     key={voucher.id}
