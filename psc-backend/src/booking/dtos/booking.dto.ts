@@ -41,6 +41,8 @@ export class BookingDto{
     photoshootTime?: string | null
     @IsOptional()
     guestsCount?: string | null
+    @IsNotEmpty({message: "Number of Guests must be specified"})
+    numberOfGuests: number
     
     @IsNotEmpty({message: "Total Price must be specified"})
     totalPrice: string

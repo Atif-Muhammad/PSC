@@ -32,7 +32,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { ImageUpload } from "@/components/ImageUpload";
 import {
   Select,
   SelectContent,
@@ -64,8 +63,8 @@ interface LawnForm {
   guestCharges: string;
   isOutOfService: boolean;
   outOfServiceReason: string;
+  outOfServiceFrom: string;
   outOfServiceUntil: string;
-  images: File[];
 }
 
 const initialFormState: LawnForm = {
@@ -77,8 +76,8 @@ const initialFormState: LawnForm = {
   guestCharges: "",
   isOutOfService: false,
   outOfServiceReason: "",
+  outOfServiceFrom: "",
   outOfServiceUntil: "",
-  images: [],
 };
 
 // FIXED: Move StatusToggle outside the main component to prevent recreation
@@ -86,19 +85,23 @@ const StatusToggle = React.memo(function StatusToggle({
   isOutOfService,
   onToggle,
   reason,
+  from,
   until,
   onReasonChange,
-  onDateChange,
+  onFromChange,
+  onUntilChange,
 }: {
   isOutOfService: boolean;
   onToggle: (v: boolean) => void;
   reason: string;
+  from: string;
   until: string;
   onReasonChange: (v: string) => void;
-  onDateChange: (v: string) => void;
+  onFromChange: (v: string) => void;
+  onUntilChange: (v: string) => void;
 }) {
   return (
-    <div className="space-y-6 p-6 rounded-xl border bg-gradient-to-br from-blue-50 to-teal-50 dark:from-blue-950/40 dark:to-teal-950/30">
+    <div className="space-y-6 p-6 rounded-xl border bg-gradient-to-br dark:from-blue-950/40 dark:to-teal-950/30">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold flex items-center gap-2">
@@ -133,7 +136,7 @@ const StatusToggle = React.memo(function StatusToggle({
           <h4 className="font-semibold text-orange-800 flex items-center gap-2 mb-4">
             <XCircle className="h-5 w-5" /> Out of Service Details
           </h4>
-          <div className="grid md:grid-cols-2 gap-5">
+          <div className="grid md:grid-cols-1 grid-rows-2 gap-5">
             <div>
               <Label>Reason for Maintenance</Label>
               <Textarea
@@ -143,16 +146,32 @@ const StatusToggle = React.memo(function StatusToggle({
                 onChange={(e) => onReasonChange(e.target.value)}
               />
             </div>
-            <div>
-              <Label>Available Again On</Label>
+            <div className="grid grid-cols-2 gap-x-2"><div>
+              <Label>Out of Service From *</Label>
               <Input
                 type="date"
                 className="mt-2"
-                value={until}
-                onChange={(e) => onDateChange(e.target.value)}
+                value={from}
+                onChange={(e) => onFromChange(e.target.value)}
+                required
               />
             </div>
+              <div>
+                <Label>Available Again On *</Label>
+                <Input
+                  type="date"
+                  className="mt-2"
+                  value={until}
+                  onChange={(e) => onUntilChange(e.target.value)}
+                  required
+                />
+              </div></div>
           </div>
+          {from && until && new Date(from) > new Date(until) && (
+            <p className="text-red-600 text-sm mt-2">
+              "Out of Service From" date cannot be after "Available Again On" date
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -172,8 +191,6 @@ export default function Lawns() {
   const [editForm, setEditForm] = useState<any>({
     ...initialFormState,
     id: "",
-    existingImages: [],
-    newImages: [],
   });
 
   const { data: lawns = [], isLoading: isLoadingLawns } = useQuery({
@@ -240,10 +257,8 @@ export default function Lawns() {
         guestCharges: editLawn.guestCharges?.toString() || "",
         isOutOfService: editLawn.isOutOfService || false,
         outOfServiceReason: editLawn.outOfServiceReason || "",
+        outOfServiceFrom: editLawn.outOfServiceFrom?.split("T")[0] || "",
         outOfServiceUntil: editLawn.outOfServiceUntil?.split("T")[0] || "",
-        existingImages: (editLawn.images || []).map((img: any) => img.publicId || img.url || img),
-        newImages: [],
-        images: [],
       });
     }
   }, [editLawn]);
@@ -254,40 +269,81 @@ export default function Lawns() {
       return;
     }
 
-    const fd = new FormData();
-    fd.append("lawnCategoryId", form.lawnCategoryId);
-    fd.append("description", form.description);
-    fd.append("minGuests", form.minGuests);
-    fd.append("maxGuests", form.maxGuests);
-    fd.append("memberCharges", form.memberCharges || "0");
-    fd.append("guestCharges", form.guestCharges || "0");
-    fd.append("isOutOfService", String(form.isOutOfService));
+    // Validate out of service dates if out of service is enabled
     if (form.isOutOfService) {
-      fd.append("outOfServiceReason", form.outOfServiceReason);
-      fd.append("outOfServiceUntil", form.outOfServiceUntil);
+      if (!form.outOfServiceFrom || !form.outOfServiceUntil) {
+        toast({
+          title: "Out of Service dates are required",
+          description: "Please provide both 'Out of Service From' and 'Available Again On' dates",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      if (new Date(form.outOfServiceFrom) > new Date(form.outOfServiceUntil)) {
+        toast({
+          title: "Invalid date range",
+          description: "'Out of Service From' date cannot be after 'Available Again On' date",
+          variant: "destructive"
+        });
+        return;
+      }
     }
-    form.images.forEach((file) => fd.append("files", file));
-    createMutation.mutate(fd);
+
+    const payload = {
+      lawnCategoryId: form.lawnCategoryId,
+      description: form.description,
+      minGuests: form.minGuests,
+      maxGuests: form.maxGuests,
+      memberCharges: form.memberCharges || "0",
+      guestCharges: form.guestCharges || "0",
+      isOutOfService: form.isOutOfService,
+      outOfServiceReason: form.outOfServiceReason,
+      outOfServiceFrom: form.outOfServiceFrom,
+      outOfServiceUntil: form.outOfServiceUntil,
+    };
+
+    createMutation.mutate(payload);
   }, [form, createMutation, toast]);
 
   const handleUpdate = useCallback(() => {
-    const fd = new FormData();
-    fd.append("id", editForm.id);
-    fd.append("lawnCategoryId", editForm.lawnCategoryId);
-    fd.append("description", editForm.description);
-    fd.append("minGuests", editForm.minGuests);
-    fd.append("maxGuests", editForm.maxGuests);
-    fd.append("memberCharges", editForm.memberCharges);
-    fd.append("guestCharges", editForm.guestCharges);
-    fd.append("isOutOfService", String(editForm.isOutOfService));
+    // Validate out of service dates if out of service is enabled
     if (editForm.isOutOfService) {
-      fd.append("outOfServiceReason", editForm.outOfServiceReason);
-      fd.append("outOfServiceUntil", editForm.outOfServiceUntil);
+      if (!editForm.outOfServiceFrom || !editForm.outOfServiceUntil) {
+        toast({
+          title: "Out of Service dates are required",
+          description: "Please provide both 'Out of Service From' and 'Available Again On' dates",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      if (new Date(editForm.outOfServiceFrom) > new Date(editForm.outOfServiceUntil)) {
+        toast({
+          title: "Invalid date range",
+          description: "'Out of Service From' date cannot be after 'Available Again On' date",
+          variant: "destructive"
+        });
+        return;
+      }
     }
-    editForm.existingImages.forEach((pid: string) => fd.append("existingimgs", pid));
-    editForm.newImages.forEach((file: File) => fd.append("files", file));
-    updateMutation.mutate(fd);
-  }, [editForm, updateMutation]);
+
+    const payload = {
+      id: editForm.id,
+      lawnCategoryId: editForm.lawnCategoryId,
+      description: editForm.description,
+      minGuests: editForm.minGuests,
+      maxGuests: editForm.maxGuests,
+      memberCharges: editForm.memberCharges,
+      guestCharges: editForm.guestCharges,
+      isOutOfService: editForm.isOutOfService,
+      outOfServiceReason: editForm.outOfServiceReason,
+      outOfServiceFrom: editForm.outOfServiceFrom,
+      outOfServiceUntil: editForm.outOfServiceUntil,
+    };
+
+    updateMutation.mutate(payload);
+  }, [editForm, updateMutation, toast]);
 
   return (
     <div className="space-y-8 ">
@@ -327,7 +383,7 @@ export default function Lawns() {
                 <DialogTitle className="text-2xl">Add New Lawn</DialogTitle>
               </DialogHeader>
               <div className="space-y-6 py-6">
-                {/* All other fields (category, guests, charges, description, images) */}
+                {/* All other fields (category, guests, charges, description) */}
                 <div>
                   <Label>Lawn Category *</Label>
                   {isLoadingCategories ? (
@@ -357,24 +413,16 @@ export default function Lawns() {
 
                 <div><Label>Description</Label><Textarea value={form.description} onChange={e => setForm(prev => ({ ...prev, description: e.target.value }))} rows={4} placeholder="Beautiful green lawn..." /></div>
 
-                <div>
-                  <Label>Images (Max 5)</Label>
-                  <ImageUpload
-                    images={form.images.map(f => URL.createObjectURL(f))}
-                    onChange={files => setForm(prev => ({ ...prev, images: [...prev.images, ...files].slice(0, 5) }))}
-                    onRemove={i => setForm(prev => ({ ...prev, images: prev.images.filter((_, idx) => idx !== i) }))}
-                    maxImages={5}
-                  />
-                </div>
-
                 {/* FIXED STATUS TOGGLE – ADD */}
                 <StatusToggle
                   isOutOfService={form.isOutOfService}
                   onToggle={(v) => setForm(prev => ({ ...prev, isOutOfService: v }))}
                   reason={form.outOfServiceReason}
+                  from={form.outOfServiceFrom}
                   until={form.outOfServiceUntil}
                   onReasonChange={(v) => setForm(prev => ({ ...prev, outOfServiceReason: v }))}
-                  onDateChange={(v) => setForm(prev => ({ ...prev, outOfServiceUntil: v }))}
+                  onFromChange={(v) => setForm(prev => ({ ...prev, outOfServiceFrom: v }))}
+                  onUntilChange={(v) => setForm(prev => ({ ...prev, outOfServiceUntil: v }))}
                 />
               </div>
 
@@ -419,7 +467,12 @@ export default function Lawns() {
                     <TableCell>PKR {Number(lawn.guestCharges).toLocaleString()}</TableCell>
                     <TableCell>
                       {lawn.isOutOfService ? (
-                        <Badge variant="destructive" className="font-medium">Out of Service</Badge>
+                        <span className="flex flex-col">
+                        <Badge variant="destructive" className="font-medium w-fit">Out of Service</Badge>
+                        <span>
+                          {lawn.outOfServiceFrom.toString().split("T")[0]} -&gt; {lawn.outOfServiceTo.toString().split("T")[0]}
+                        </span>
+                        </span>
                       ) : (
                         <Badge className="bg-emerald-600 text-white font-medium">Active</Badge>
                       )}
@@ -465,33 +518,16 @@ export default function Lawns() {
 
             <div><Label>Description</Label><Textarea value={editForm.description} onChange={e => setEditForm(prev => ({ ...prev, description: e.target.value }))} rows={4} /></div>
 
-            <div>
-              <Label>Current Images</Label>
-              <div className="flex flex-wrap gap-3 mt-3">
-                {editLawn?.images?.map((img: any, i: number) => (
-                  <img key={i} src={img.url || img} alt="lawn" className="h-28 w-28 object-cover rounded-lg border shadow" />
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <Label>Add New Images (Max 5)</Label>
-              <ImageUpload
-                images={editForm.newImages.map((f: File) => URL.createObjectURL(f))}
-                onChange={files => setEditForm(prev => ({ ...prev, newImages: [...prev.newImages, ...files].slice(0, 5) }))}
-                onRemove={i => setEditForm(prev => ({ ...prev, newImages: prev.newImages.filter((_: any, idx: number) => idx !== i) }))}
-                maxImages={5}
-              />
-            </div>
-
             {/* FIXED STATUS TOGGLE – EDIT */}
             <StatusToggle
               isOutOfService={editForm.isOutOfService}
               onToggle={(v) => setEditForm(prev => ({ ...prev, isOutOfService: v }))}
               reason={editForm.outOfServiceReason}
+              from={editForm.outOfServiceFrom}
               until={editForm.outOfServiceUntil}
               onReasonChange={(v) => setEditForm(prev => ({ ...prev, outOfServiceReason: v }))}
-              onDateChange={(v) => setEditForm(prev => ({ ...prev, outOfServiceUntil: v }))}
+              onFromChange={(v) => setEditForm(prev => ({ ...prev, outOfServiceFrom: v }))}
+              onUntilChange={(v) => setEditForm(prev => ({ ...prev, outOfServiceUntil: v }))}
             />
           </div>
 

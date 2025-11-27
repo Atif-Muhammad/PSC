@@ -20,6 +20,7 @@ export const hallInitialFormState: HallBookingForm = {
   eventTime: "MORNING",
   pricingType: "member",
   totalPrice: 0,
+  numberOfGuests: 0,
   paymentStatus: "UNPAID",
   paidAmount: 0,
   pendingAmount: 0,

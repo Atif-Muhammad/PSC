@@ -209,7 +209,7 @@ export default function HallBookings() {
     queryKey: ["halls"],
     queryFn: async () => (await getHalls()) as Hall[],
   });
-  console.log(halls)
+  // console.log(halls)
 
   // Member search query with throttling for create dialog
   const {
@@ -443,7 +443,8 @@ export default function HallBookings() {
       !form.hallId ||
       !form.bookingDate ||
       !form.eventType ||
-      !form.eventTime
+      !form.eventTime ||
+      form.numberOfGuests < 1
     ) {
       toast({
         title: "Please fill all required fields",
@@ -487,6 +488,7 @@ export default function HallBookings() {
       eventTime: form.eventTime,
       totalPrice: form.totalPrice.toString(),
       paymentStatus: form.paymentStatus,
+      numberOfGuests: form.numberOfGuests || 0,
       paidAmount: form.paidAmount,
       pendingAmount: form.pendingAmount,
       pricingType: form.pricingType,
@@ -497,7 +499,7 @@ export default function HallBookings() {
   };
 
   const handleUpdate = () => {
-    
+
     console.log(editForm)
     // Enhanced validation that handles null/undefined values
     const requiredFields = [
@@ -505,11 +507,21 @@ export default function HallBookings() {
       { field: editForm.hallId, name: "Hall" },
       { field: editForm.bookingDate, name: "Booking Date" },
       { field: editForm.eventType, name: "Event Type" },
+      { field: editForm.numberOfGuests, name: "Number of Guests" }
     ];
 
     const missingFields = requiredFields.filter(
       ({ field }) => !field || field.toString().trim() === ""
     );
+
+    if (editForm.numberOfGuests < 1) {
+      toast({
+        title: "Invalid number of guests",
+        description: "Number of guests must be at least 1",
+        variant: "destructive",
+      });
+      return;
+    }
 
     if (missingFields.length > 0) {
       toast({
@@ -552,6 +564,7 @@ export default function HallBookings() {
       bookingDate: new Date(editForm.bookingDate).toISOString(),
       eventType: editForm.eventType,
       eventTime: editForm.eventTime,
+      numberOfGuests: editForm.numberOfGuests || 0,
       totalPrice: editForm.totalPrice.toString(),
       paymentStatus: editForm.paymentStatus,
       paidAmount: editForm.paidAmount,
@@ -655,6 +668,7 @@ export default function HallBookings() {
         eventTime: editBooking.bookingTime || "EVENING" as any as HallBookingTime,
         pricingType: editBooking.pricingType || "member" as any as PricingType,
         totalPrice: Number(editBooking.totalPrice) || 0,
+        numberOfGuests: Number(editBooking.numberOfGuests),
         paymentStatus: editBooking.paymentStatus || "UNPAID" as any as PaymentStatus,
         paidAmount: Number(editBooking.paidAmount) || 0,
         pendingAmount: Number(editBooking.pendingAmount) || 0,
@@ -824,6 +838,17 @@ export default function HallBookings() {
                       <SelectItem value="guest">Guest</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+                <div>
+                  <Label>Number of Guests *</Label>
+                  <Input
+                    type="number"
+                    value={form.numberOfGuests || ""}
+                    onChange={(e) => handleFormChange("numberOfGuests", parseInt(e.target.value) || 0)}
+                    className="mt-2"
+                    placeholder="Enter number of guests"
+                    min="1"
+                  />
                 </div>
 
                 <HallPaymentSection form={form} onChange={handleFormChange} />
@@ -1115,6 +1140,17 @@ export default function HallBookings() {
                   <SelectItem value="guest">Guest</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label>Number of Guests *</Label>
+              <Input
+                type="number"
+                value={editForm.numberOfGuests || ""}
+                onChange={(e) => handleEditFormChange("numberOfGuests", parseInt(e.target.value) || 0)}
+                className="mt-2"
+                placeholder="Enter number of guests"
+                min="1"
+              />
             </div>
 
             <HallPaymentSection

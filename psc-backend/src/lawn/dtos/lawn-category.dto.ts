@@ -6,4 +6,6 @@ export class LawnCategory{
     id?: string;
     @IsNotEmpty()
     category: string;
+    @IsOptional()
+    existingimgs?: string[]
 }

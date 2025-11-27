@@ -18,7 +18,7 @@ export class HallDto {
     @IsNotEmpty({message: "hall activity must be provided"})
     isActive: boolean | string;
     @IsNotEmpty({message: "hall activity must be provided"})
-    isOutOfService: boolean | string;
+    isOutOfService: boolean | string ;
 
     @IsOptional()
     outOfServiceReason?: string;

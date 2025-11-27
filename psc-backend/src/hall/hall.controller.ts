@@ -52,7 +52,7 @@ export class HallController {
       return res.status(400).send({
         cause: 'hall activity and out-of-order cannot be at the same time',
       });
-    return this.hall.createHall(payload, files);
+    return this.hall.createHall({...payload, isActive: Boolean(payload.isActive), isOutOfService: Boolean(payload.isOutOfService)}, files);
   }
 
   @UseGuards(JwtAccGuard, RolesGuard)
@@ -71,7 +71,7 @@ export class HallController {
         cause: 'hall activity and out-of-service cannot be at the same time',
       });
 
-    return this.hall.updateHall(payload, files);
+    return this.hall.updateHall({...payload, isActive: payload.isActive === 'true' ? true:false, isOutOfService: payload.isOutOfService === 'true' ? true:false }, files);
   }
 
   @UseGuards(JwtAccGuard, RolesGuard)

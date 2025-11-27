@@ -10,6 +10,7 @@ import {
 import { BookingDto } from './dtos/booking.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import {
+  BookingOpt,
   BookingType,
   PaymentMode,
   PaymentStatus,
@@ -799,7 +800,6 @@ export class BookingService {
       },
     });
   }
-
   async cBookingHall(payload: BookingDto) {
     const {
       membershipNo,
@@ -811,9 +811,9 @@ export class BookingService {
       paidAmount,
       paymentMode,
       eventType,
+      numberOfGuests,
       eventTime, // This should be the time slot (MORNING, EVENING, NIGHT)
     } = payload;
-    console.log(bookingDate);
 
     // ── 1. VALIDATE REQUIRED FIELDS ─────────────────────────
     if (!membershipNo)
@@ -976,6 +976,7 @@ export class BookingService {
         totalPrice: total,
         paymentStatus: paymentStatus as any,
         pricingType,
+        numberOfGuests,
         paidAmount: paid,
         pendingAmount: owed,
         eventType: eventType,
@@ -1046,6 +1047,7 @@ export class BookingService {
       paymentMode,
       eventType,
       eventTime,
+      numberOfGuests,
     } = payload;
 
     // ── VALIDATE REQUIRED FIELDS ─────────────────────────
@@ -1221,6 +1223,7 @@ export class BookingService {
         pricingType,
         paidAmount: paid,
         pendingAmount: owed,
+        numberOfGuests: Number(numberOfGuests),
         eventType: eventType,
         bookingTime: normalizedEventTime,
       },
@@ -1282,8 +1285,7 @@ export class BookingService {
 
       // Determine voucher type based on payment status
       if (paymentStatus === ('PAID' as any)) {
-          voucherType = VoucherType.FULL_PAYMENT; // Full payment in one go
-        
+        voucherType = VoucherType.FULL_PAYMENT; // Full payment in one go
       } else {
         voucherType = VoucherType.HALF_PAYMENT; // Partial payment
       }
@@ -1326,6 +1328,275 @@ export class BookingService {
     return updated;
   }
 
+  // member hall booking
+  async cBookingHallMember(payload: any) {
+    const {
+      membershipNo,
+      entityId,
+      bookingDate,
+      totalPrice,
+      paymentStatus = 'PAID',
+      pricingType,
+      paidAmount,
+      paymentMode = 'ONLINE',
+      eventType,
+      eventTime, // This is the time slot (MORNING, EVENING, NIGHT)
+      specialRequests = '',
+    } = payload;
+
+    // ── 1. VALIDATE REQUIRED FIELDS ─────────────────────────
+    if (!membershipNo)
+      throw new BadRequestException('Membership number is required');
+    if (!entityId) throw new BadRequestException('Hall ID is required');
+    if (!bookingDate) throw new BadRequestException('Booking date is required');
+    if (!eventType) throw new BadRequestException('Event type is required');
+    if (!eventTime) throw new BadRequestException('Event time is required');
+
+    // ── 2. VALIDATE BOOKING DATE ────────────────────────────
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const booking = new Date(bookingDate);
+    booking.setHours(0, 0, 0, 0);
+
+    if (booking < today) {
+      throw new ConflictException('Booking date cannot be in the past');
+    }
+
+    // ── 3. VALIDATE MEMBER ─────────────────────────────────
+    const member = await this.prismaService.member.findUnique({
+      where: { Membership_No: membershipNo.toString() },
+    });
+
+    if (!member) {
+      throw new NotFoundException('Member not found');
+    }
+
+    // ── 4. VALIDATE EVENT TIME ─────────────────────────────
+    const normalizedEventTime = eventTime.toUpperCase() as
+      | 'MORNING'
+      | 'EVENING'
+      | 'NIGHT';
+    const validEventTimes = ['MORNING', 'EVENING', 'NIGHT'];
+    if (!validEventTimes.includes(normalizedEventTime)) {
+      throw new BadRequestException(
+        'Invalid event time. Must be MORNING, EVENING, or NIGHT',
+      );
+    }
+
+    // Use transaction for atomic operations
+    return await this.prismaService.$transaction(async (prisma) => {
+      // ── 5. VALIDATE HALL ───────────────────────────────────
+      const hall = await prisma.hall.findFirst({
+        where: { id: Number(entityId) },
+      });
+
+      if (!hall) {
+        throw new NotFoundException('Hall not found');
+      }
+
+      // Check if hall is on hold
+      if (hall.onHold) {
+        throw new ConflictException('Hall is currently on hold');
+      }
+
+      // ── 6. CHECK OUT OF SERVICE PERIODS ────────────────────
+      if (hall.isOutOfService) {
+        const outOfServiceFrom = hall.outOfServiceFrom
+          ? new Date(hall.outOfServiceFrom)
+          : null;
+        const outOfServiceTo = hall.outOfServiceTo
+          ? new Date(hall.outOfServiceTo)
+          : null;
+
+        if (outOfServiceFrom && outOfServiceTo) {
+          outOfServiceFrom.setHours(0, 0, 0, 0);
+          outOfServiceTo.setHours(0, 0, 0, 0);
+
+          // Check if booking date falls within out-of-service period
+          if (booking >= outOfServiceFrom && booking <= outOfServiceTo) {
+            throw new ConflictException(
+              `Hall '${hall.name}' is out of service from ${outOfServiceFrom.toLocaleDateString()} to ${outOfServiceTo.toLocaleDateString()}`,
+            );
+          }
+        } else if (hall.isOutOfService) {
+          throw new ConflictException(
+            `Hall '${hall.name}' is currently out of service`,
+          );
+        }
+      }
+
+      // Check for scheduled maintenance (future out-of-service)
+      if (
+        hall.outOfServiceFrom &&
+        hall.outOfServiceTo &&
+        !hall.isOutOfService
+      ) {
+        const scheduledFrom = new Date(hall.outOfServiceFrom);
+        scheduledFrom.setHours(0, 0, 0, 0);
+        const scheduledTo = new Date(hall.outOfServiceTo);
+        scheduledTo.setHours(0, 0, 0, 0);
+
+        if (booking >= scheduledFrom && booking <= scheduledTo) {
+          throw new ConflictException(
+            `Hall '${hall.name}' has scheduled maintenance starting from ${scheduledFrom.toLocaleDateString()}`,
+          );
+        }
+      }
+
+      // ── 7. CHECK FOR BOOKING CONFLICTS ─────────────────────
+      const conflictingBooking = await prisma.hallBooking.findFirst({
+        where: {
+          hallId: hall.id,
+          bookingDate: booking,
+          bookingTime: normalizedEventTime, // Strict time slot check
+        },
+      });
+
+      if (conflictingBooking) {
+        const timeSlotMap = {
+          MORNING: 'Morning (8:00 AM - 2:00 PM)',
+          EVENING: 'Evening (2:00 PM - 8:00 PM)',
+          NIGHT: 'Night (8:00 PM - 12:00 AM)',
+        };
+
+        throw new ConflictException(
+          `Hall '${hall.name}' is already booked for ${booking.toLocaleDateString()} during ${timeSlotMap[normalizedEventTime]}`,
+        );
+      }
+
+      // ── 8. CHECK FOR RESERVATIONS ──────────────────────────
+      const conflictingReservation = await prisma.hallReservation.findFirst({
+        where: {
+          hallId: hall.id,
+          AND: [
+            { reservedFrom: { lte: booking } }, // booking date is on or after reservedFrom
+            { reservedTo: { gt: booking } }, // booking date is before reservedTo (exclusive)
+          ],
+          timeSlot: normalizedEventTime, // Strict time slot check
+        },
+      });
+
+      if (conflictingReservation) {
+        throw new ConflictException(
+          `Hall '${hall.name}' is reserved from ${conflictingReservation.reservedFrom.toLocaleDateString()} to ${conflictingReservation.reservedTo.toLocaleDateString()} (${normalizedEventTime} time slot)`,
+        );
+      }
+
+      // ── 9. CALCULATE PRICE BASED ON PRICING TYPE ───────────
+      const basePrice =
+        pricingType === 'member' ? hall.chargesMembers : hall.chargesGuests;
+      const total = totalPrice ? Number(totalPrice) : Number(basePrice);
+
+      // ── 10. PAYMENT CALCULATIONS ────────────────────────────
+      let paid = 0;
+      let owed = total;
+
+      if (paymentStatus === 'PAID') {
+        paid = total;
+        owed = 0;
+      } else if (paymentStatus === 'HALF_PAID') {
+        paid = Number(paidAmount) || 0;
+        if (paid <= 0) {
+          throw new ConflictException(
+            'Paid amount must be greater than 0 for half-paid status',
+          );
+        }
+        if (paid >= total) {
+          throw new ConflictException(
+            'Paid amount must be less than total price for half-paid status',
+          );
+        }
+        owed = total - paid;
+      }
+
+      // ── 11. CREATE BOOKING ────────────────────────────────
+      const booked = await prisma.hallBooking.create({
+        data: {
+          memberId: member.Sno,
+          hallId: hall.id,
+          bookingDate: booking,
+          totalPrice: total,
+          paymentStatus: paymentStatus as any,
+          pricingType,
+          paidAmount: paid,
+          pendingAmount: owed,
+          eventType: eventType,
+          bookingTime: normalizedEventTime,
+        },
+        include: {
+          hall: {
+            select: {
+              name: true,
+              capacity: true,
+            },
+          },
+        },
+      });
+
+      // ── 12. UPDATE HALL STATUS IF BOOKING IS FOR TODAY ────
+      const todayCheck = new Date();
+      todayCheck.setHours(0, 0, 0, 0);
+      const isToday = booking.getTime() === todayCheck.getTime();
+
+      if (isToday) {
+        await prisma.hall.update({
+          where: { id: hall.id },
+          data: {
+            isBooked: true,
+            onHold: false,
+            holdExpiry: null,
+            holdBy: null,
+          },
+        });
+      }
+
+      // ── 13. UPDATE MEMBER LEDGER ──────────────────────────
+      await prisma.member.update({
+        where: { Membership_No: membershipNo.toString() },
+        data: {
+          totalBookings: { increment: 1 },
+          lastBookingDate: new Date(),
+          drAmount: { increment: paid },
+          crAmount: { increment: owed },
+          Balance: { increment: paid - owed },
+        },
+      });
+
+      // ── 14. CREATE PAYMENT VOUCHER ────────────────────────
+      if (paid > 0) {
+        let voucherType: VoucherType | null = null;
+        if (paymentStatus === ('PAID' as unknown))
+          voucherType = VoucherType.FULL_PAYMENT;
+        else if (paymentStatus === ('HALF_PAID' as unknown))
+          voucherType = VoucherType.HALF_PAYMENT;
+
+        await prisma.paymentVoucher.create({
+          data: {
+            booking_type: 'HALL',
+            booking_id: booked.id,
+            membership_no: membershipNo.toString(),
+            amount: paid,
+            payment_mode: paymentMode as unknown as PaymentMode,
+            voucher_type: voucherType!,
+            status: VoucherStatus.CONFIRMED,
+            issued_by: 'member',
+            remarks: `${hall.name} | ${booking.toLocaleDateString()} | ${eventType} (${normalizedEventTime})${specialRequests ? ` | Requests: ${specialRequests}` : ''}`,
+          },
+        });
+      }
+
+      return {
+        success: true,
+        message: `Successfully booked ${hall.name}`,
+        booking: booked,
+        totalAmount: total,
+        paidAmount: paid,
+        pendingAmount: owed,
+      };
+    });
+  }
+
   async dBookingHall(bookingId: number) {
     return await this.prismaService.hallBooking.delete({
       where: { id: bookingId },
@@ -1338,109 +1609,190 @@ export class BookingService {
       membershipNo,
       entityId,
       bookingDate,
-      guestsCount,
       totalPrice,
       paymentStatus,
       pricingType,
       paidAmount,
       paymentMode,
+      numberOfGuests,
+      eventTime
     } = payload;
-    console.log(payload);
 
-    // ── VALIDATE BOOKING DATE ───────────────────────────────
+    // ── 1. VALIDATE REQUIRED FIELDS ─────────────────────────
+    if (!membershipNo)
+      throw new BadRequestException('Membership number is required');
+    if (!entityId) throw new BadRequestException('Lawn ID is required');
+    if (!bookingDate) throw new BadRequestException('Booking date is required');
+    if (!numberOfGuests)
+      throw new BadRequestException('Number of guests is required');
+
+    // ── 2. VALIDATE BOOKING DATE ────────────────────────────
     const today = new Date();
-    const booking = new Date(bookingDate!);
-    if (!bookingDate || booking < today)
-      throw new UnprocessableEntityException('Booking date is not valid');
+    const booking = new Date(bookingDate);
 
-    // ── VALIDATE MEMBER ─────────────────────────────────────
+    if (booking < today) {
+      throw new UnprocessableEntityException(
+        'Booking date cannot be in the past',
+      );
+    }
+
+    // ── 3. VALIDATE MEMBER ─────────────────────────────────
     const member = await this.prismaService.member.findFirst({
       where: { Membership_No: membershipNo },
     });
-    if (!member) throw new BadRequestException('Member must be selected');
+    if (!member) throw new BadRequestException('Member not found');
 
-    // ── VALIDATE LAWN ───────────────────────────────────────
+    // ── 4. VALIDATE LAWN ───────────────────────────────────
     const lawn = await this.prismaService.lawn.findFirst({
       where: { id: Number(entityId) },
     });
-    if (!lawn) throw new BadRequestException('Lawn must be specified');
+    if (!lawn) throw new BadRequestException('Lawn not found');
 
-    // ── CHECK DATE AVAILABILITY ─────────────────────────────
-    const conflict = await this.prismaService.lawnBooking.findFirst({
+    // Check if lawn is active
+    if (!lawn.isActive) {
+      throw new ConflictException('Lawn is not active');
+    }
+
+    // ── 5. CHECK OUT OF SERVICE PERIODS ────────────────────
+    if (lawn.isOutOfService) {
+      const outOfServiceFrom = lawn.outOfServiceFrom
+        ? new Date(lawn.outOfServiceFrom)
+        : null;
+      const outOfServiceTo = lawn.outOfServiceTo
+        ? new Date(lawn.outOfServiceTo)
+        : null;
+
+      if (outOfServiceFrom && outOfServiceTo) {
+        // Check if booking date falls within out-of-service period
+        if (booking >= outOfServiceFrom && booking <= outOfServiceTo) {
+          throw new ConflictException(
+            `Lawn '${lawn.description}' is out of service from ${outOfServiceFrom.toLocaleDateString()} to ${outOfServiceTo.toLocaleDateString()}`,
+          );
+        }
+      } else if (lawn.isOutOfService) {
+        // Lawn is marked out of service but no dates specified
+        throw new ConflictException(
+          `Lawn '${lawn.description}' is currently out of service`,
+        );
+      }
+    }
+
+    // Check for scheduled maintenance (future out-of-service)
+    if (lawn.outOfServiceFrom && lawn.outOfServiceTo && !lawn.isOutOfService) {
+      const scheduledFrom = new Date(lawn.outOfServiceFrom);
+      if (
+        booking >= scheduledFrom &&
+        booking <= new Date(lawn.outOfServiceTo)
+      ) {
+        throw new ConflictException(
+          `Lawn '${lawn.description}' has scheduled maintenance starting from ${scheduledFrom.toLocaleDateString()}`,
+        );
+      }
+    }
+
+    // ── 6. CHECK GUEST COUNT AGAINST LAWN CAPACITY ─────────
+    if (numberOfGuests < (lawn.minGuests || 0)) {
+      throw new ConflictException(
+        `Number of guests (${numberOfGuests}) is below the minimum requirement of ${lawn.minGuests} for this lawn`,
+      );
+    }
+
+    if (numberOfGuests > lawn.maxGuests) {
+      throw new ConflictException(
+        `Number of guests (${numberOfGuests}) exceeds the maximum capacity of ${lawn.maxGuests} for this lawn`,
+      );
+    }
+
+    // ── 7. CHECK DATE AVAILABILITY ─────────────────────────
+    const conflictingBooking = await this.prismaService.lawnBooking.findFirst({
       where: {
         lawnId: lawn.id,
-        bookingDate: new Date(bookingDate),
+        bookingDate: booking,
+        bookingTime: eventTime as BookingOpt
       },
     });
-    if (conflict)
-      throw new ConflictException(
-        `Lawn '${lawn.description}' is already booked for ${new Date(
-          bookingDate,
-        ).toLocaleDateString()}`,
-      );
 
-    // ── DETERMINE TOTAL, PAID & PENDING AMOUNTS ─────────────
-    const total = Number(totalPrice);
+    if (conflictingBooking) {
+      throw new ConflictException(
+        `Lawn '${lawn.description}' is already booked for ${booking.toLocaleDateString()}`,
+      );
+    }
+
+    // ── 8. CALCULATE PRICE BASED ON PRICING TYPE ───────────
+    const basePrice =
+      pricingType === 'member' ? lawn.memberCharges : lawn.guestCharges;
+    const total = totalPrice ? Number(totalPrice) : Number(basePrice);
+
+    // ── 9. PAYMENT CALCULATIONS ────────────────────────────
     let paid = 0;
     let owed = total;
 
-    if (paymentStatus === (PaymentStatus.PAID as unknown)) {
+    if (paymentStatus === ('PAID' as any)) {
       paid = total;
-    } else if (paymentStatus === (PaymentStatus.HALF_PAID as unknown)) {
+      owed = 0;
+    } else if (paymentStatus === ('HALF_PAID' as any)) {
       paid = Number(paidAmount) || 0;
-      if (paid > total)
-        throw new ConflictException('Paid amount cannot exceed total');
+      if (paid <= 0) {
+        throw new ConflictException(
+          'Paid amount must be greater than 0 for half-paid status',
+        );
+      }
+      if (paid >= total) {
+        throw new ConflictException(
+          'Paid amount must be less than total price for half-paid status',
+        );
+      }
+      owed = total - paid;
     }
-    // UNPAID → paid = 0, owed = total
 
-    // ── CREATE LAWN BOOKING ─────────────────────────────────
+    // ── 10. CREATE BOOKING ────────────────────────────────
     const booked = await this.prismaService.lawnBooking.create({
       data: {
         memberId: member.Sno,
         lawnId: lawn.id,
-        bookingDate: new Date(bookingDate),
-        guestsCount: Number(guestsCount) || 0,
+        bookingDate: booking,
+        guestsCount: numberOfGuests,
         totalPrice: total,
         paymentStatus: paymentStatus as any,
         pricingType,
         paidAmount: paid,
-        pendingAmount: total - paid,
+        pendingAmount: owed,
+        bookingTime: eventTime as BookingOpt, 
       },
     });
 
-    // ── MARK LAWN AS BOOKED ─────────────────────────────────
-    if (new Date(bookingDate) <= new Date()) {
+    // ── 11. UPDATE LAWN STATUS IF BOOKING IS FOR TODAY ────
+    const isToday =
+      booking.getDate() === today.getDate() &&
+      booking.getMonth() === today.getMonth() &&
+      booking.getFullYear() === today.getFullYear();
+    if (isToday) {
       await this.prismaService.lawn.update({
         where: { id: lawn.id },
         data: { isBooked: true },
       });
     }
 
-    // ── UPDATE MEMBER LEDGER ────────────────────────────────
+    // ── 12. UPDATE MEMBER LEDGER ──────────────────────────
     await this.prismaService.member.update({
       where: { Membership_No: membershipNo },
       data: {
         totalBookings: { increment: 1 },
         lastBookingDate: new Date(),
-
-        // debit → money received
         drAmount: { increment: paid },
-
-        // credit → money owed
         crAmount: { increment: owed },
-
-        // balance = dr - cr
         Balance: { increment: paid - owed },
       },
     });
 
-    // ── CREATE PAYMENT VOUCHER (if any cash received) ───────
+    // ── 13. CREATE PAYMENT VOUCHER ────────────────────────
     if (paid > 0) {
-      let voucherType: VoucherType | null = null;
-      if (paymentStatus === (PaymentStatus.PAID as unknown))
+      let voucherType: VoucherType;
+      if (paymentStatus === ('PAID' as any)) {
         voucherType = VoucherType.FULL_PAYMENT;
-      else if (paymentStatus === (PaymentStatus.HALF_PAID as unknown))
+      } else {
         voucherType = VoucherType.HALF_PAYMENT;
+      }
 
       await this.prismaService.paymentVoucher.create({
         data: {
@@ -1449,10 +1801,10 @@ export class BookingService {
           membership_no: membershipNo,
           amount: paid,
           payment_mode: paymentMode as any,
-          voucher_type: voucherType!,
+          voucher_type: voucherType,
           status: VoucherStatus.CONFIRMED,
           issued_by: 'admin',
-          remarks: `${lawn.description} | ${new Date(bookingDate).toLocaleDateString()}`,
+          remarks: `${lawn.description} | ${booking.toLocaleDateString()} | ${numberOfGuests} guests`,
         },
       });
     }
@@ -1466,114 +1818,217 @@ export class BookingService {
       membershipNo,
       entityId,
       bookingDate,
-      guestsCount,
       totalPrice,
       paymentStatus,
       pricingType,
       paidAmount,
-      pendingAmount,
+      paymentMode,
+      numberOfGuests,
+      eventTime
     } = payload;
 
-    // ── FETCH EXISTING BOOKING ──────────────────────────────
-    const booking = await this.prismaService.lawnBooking.findUnique({
+    // ── VALIDATE REQUIRED FIELDS ─────────────────────────
+    if (!id) throw new BadRequestException('Booking ID is required');
+    if (!membershipNo)
+      throw new BadRequestException('Membership number is required');
+    if (!entityId) throw new BadRequestException('Lawn ID is required');
+    if (!bookingDate) throw new BadRequestException('Booking date is required');
+    if (!totalPrice) throw new BadRequestException('Total price is required');
+    if (!numberOfGuests)
+      throw new BadRequestException('Number of guests is required');
+
+    // ── VALIDATE BOOKING DATE ────────────────────────────
+    const today = new Date();
+    const booking = new Date(bookingDate);
+
+    if (booking < today) {
+      throw new UnprocessableEntityException(
+        'Booking date cannot be in the past',
+      );
+    }
+
+    // ── FETCH EXISTING BOOKING ───────────────────────────
+    const existing = await this.prismaService.lawnBooking.findUnique({
       where: { id: Number(id) },
-      select: {
-        id: true,
-        lawnId: true,
-        totalPrice: true,
-        paidAmount: true,
-        pendingAmount: true,
-        memberId: true,
-      },
+      include: { member: true, lawn: true },
     });
-    if (!booking) throw new NotFoundException('Booking not found');
+    if (!existing) throw new NotFoundException('Booking not found');
 
-    // ── VALIDATE LAWN ───────────────────────────────────────
-    const newLawnId = entityId ? Number(entityId) : booking.lawnId;
-    const lawn = await this.prismaService.lawn.findUnique({
-      where: { id: newLawnId },
+    // ── VALIDATE MEMBER ─────────────────────────────────
+    const member = await this.prismaService.member.findFirst({
+      where: { Membership_No: membershipNo },
     });
-    if (!lawn) throw new NotFoundException('Lawn not found');
+    if (!member) throw new BadRequestException('Member not found');
 
-    // ── CHECK DATE CONFLICT ─────────────────────────────────
-    if (bookingDate) {
-      const conflict = await this.prismaService.lawnBooking.findFirst({
-        where: {
-          lawnId: newLawnId,
-          bookingDate: new Date(bookingDate),
-          NOT: { id: booking.id },
-        },
-      });
-      if (conflict)
+    // ── VALIDATE LAWN ───────────────────────────────────
+    const lawn = await this.prismaService.lawn.findFirst({
+      where: { id: Number(entityId) },
+    });
+    if (!lawn) throw new BadRequestException('Lawn not found');
+
+    // Check if lawn is active
+    if (!lawn.isActive) {
+      throw new ConflictException('Lawn is not active');
+    }
+
+    // ── CHECK OUT OF SERVICE PERIODS ────────────────────
+    if (lawn.isOutOfService) {
+      const outOfServiceFrom = lawn.outOfServiceFrom
+        ? new Date(lawn.outOfServiceFrom)
+        : null;
+      const outOfServiceTo = lawn.outOfServiceTo
+        ? new Date(lawn.outOfServiceTo)
+        : null;
+
+      if (outOfServiceFrom && outOfServiceTo) {
+        // Check if booking date falls within out-of-service period
+        if (booking >= outOfServiceFrom && booking <= outOfServiceTo) {
+          throw new ConflictException(
+            `Lawn '${lawn.description}' is out of service from ${outOfServiceFrom.toLocaleDateString()} to ${outOfServiceTo.toLocaleDateString()}`,
+          );
+        }
+      } else if (lawn.isOutOfService) {
+        // Lawn is marked out of service but no dates specified
         throw new ConflictException(
-          `Lawn '${lawn.description}' is already booked for that date.`,
+          `Lawn '${lawn.description}' is currently out of service`,
         );
+      }
     }
 
-    // ── CALCULATE UPDATED PAYMENT ────────────────────────────
-    const newTotal =
-      totalPrice !== undefined
-        ? Number(totalPrice)
-        : Number(booking.totalPrice);
-    let newPaid = 0;
-    let newOwed = newTotal;
-
-    if (paymentStatus === (PaymentStatus.PAID as unknown)) {
-      newPaid = newTotal;
-    } else if (paymentStatus === (PaymentStatus.HALF_PAID as unknown)) {
-      newPaid =
-        paidAmount !== undefined
-          ? Number(paidAmount)
-          : Number(booking.paidAmount);
-      if (newPaid > newTotal)
-        throw new ConflictException('Paid amount cannot exceed total');
+    // Check for scheduled maintenance (future out-of-service)
+    if (lawn.outOfServiceFrom && lawn.outOfServiceTo && !lawn.isOutOfService) {
+      const scheduledFrom = new Date(lawn.outOfServiceFrom);
+      if (
+        booking >= scheduledFrom &&
+        booking <= new Date(lawn.outOfServiceTo)
+      ) {
+        throw new ConflictException(
+          `Lawn '${lawn.description}' has scheduled maintenance starting from ${scheduledFrom.toLocaleDateString()}`,
+        );
+      }
     }
 
-    const oldPaid = Number(booking.paidAmount);
-    const oldOwed = Number(booking.totalPrice);
-    const paidDiff = newPaid - oldPaid;
-    const owedDiff = newOwed - oldOwed;
+    // ── CHECK GUEST COUNT AGAINST LAWN CAPACITY ─────────
+    if (numberOfGuests < (lawn.minGuests || 0)) {
+      throw new ConflictException(
+        `Number of guests (${numberOfGuests}) is below the minimum requirement of ${lawn.minGuests} for this lawn`,
+      );
+    }
 
-    // ── UPDATE BOOKING RECORD ───────────────────────────────
+    if (numberOfGuests > lawn.maxGuests) {
+      throw new ConflictException(
+        `Number of guests (${numberOfGuests}) exceeds the maximum capacity of ${lawn.maxGuests} for this lawn`,
+      );
+    }
+
+    // ── CHECK LAWN AVAILABILITY (excluding current booking) ──
+    if (
+      existing.lawnId !== Number(entityId) ||
+      existing.bookingDate.getTime() !== booking.getTime()
+    ) {
+      const conflictingBooking = await this.prismaService.lawnBooking.findFirst(
+        {
+          where: {
+            lawnId: Number(entityId),
+            bookingDate: booking,
+            bookingTime: eventTime as BookingOpt,
+            id: { not: Number(id) }, // Exclude current booking
+          },
+        },
+      );
+
+      if (conflictingBooking) {
+        throw new ConflictException(
+          `Lawn '${lawn.description}' is already booked for ${booking.toLocaleDateString()}`,
+        );
+      }
+    }
+
+    // ── PAYMENT CALCULATIONS ─────────────────────────────
+    const total = Number(totalPrice);
+    let paid = 0;
+    let owed = total;
+
+    if (paymentStatus === ('PAID' as any)) {
+      paid = total;
+      owed = 0;
+    } else if (paymentStatus === ('HALF_PAID' as any)) {
+      paid = Number(paidAmount) || 0;
+      if (paid <= 0)
+        throw new ConflictException(
+          'Paid amount must be greater than 0 for half-paid status',
+        );
+      if (paid >= total)
+        throw new ConflictException(
+          'Paid amount must be less than total price for half-paid status',
+        );
+      owed = total - paid;
+    } else if (paymentStatus === ('UNPAID' as any)) {
+      paid = 0;
+      owed = total;
+    }
+
+    // ── CALCULATE PAYMENT DIFFERENCES FOR LEDGER ─────────
+    const prevPaid = Number(existing.paidAmount);
+    const prevTotal = Number(existing.totalPrice);
+    const prevOwed = prevTotal - prevPaid;
+
+    const paidDiff = paid - prevPaid;
+    const owedDiff = owed - prevOwed;
+
+    // ── UPDATE LAWN BOOKING ──────────────────────────────
     const updated = await this.prismaService.lawnBooking.update({
-      where: { id: booking.id },
+      where: { id: Number(id) },
       data: {
-        memberId: membershipNo ? Number(membershipNo) : booking.memberId,
-        lawnId: newLawnId,
-        bookingDate: bookingDate ? new Date(bookingDate) : undefined,
-        guestsCount: guestsCount ? Number(guestsCount) : undefined,
-        totalPrice: totalPrice ? newTotal : undefined,
+        lawnId: lawn.id,
+        memberId: member.Sno,
+        bookingDate: booking,
+        guestsCount: Number(numberOfGuests),
+        totalPrice: total,
         paymentStatus: paymentStatus as any,
         pricingType,
-        paidAmount: paidAmount ? newPaid : undefined,
-        pendingAmount: newTotal - newPaid,
+        paidAmount: paid,
+        pendingAmount: owed,
+        bookingTime: eventTime as BookingOpt
       },
     });
 
-    // ── UPDATE LAWN BOOKED STATUS ───────────────────────────
-    const lawnUpdates: Promise<any>[] = [];
-    if (new Date(bookingDate!) <= new Date()) {
-      lawnUpdates.push(
-        this.prismaService.lawn.update({
-          where: { id: newLawnId },
-          data: { isBooked: true },
-        }),
-      );
-    }
-    if (booking.lawnId !== newLawnId) {
-      lawnUpdates.push(
-        this.prismaService.lawn.update({
-          where: { id: booking.lawnId },
-          data: { isBooked: false },
-        }),
-      );
-    }
-    await Promise.all(lawnUpdates);
+    // ── UPDATE LAWN STATUS IF DATE CHANGED TO/FROM TODAY ─
+    const isToday =
+      booking.getDate() === today.getDate() &&
+      booking.getMonth() === today.getMonth() &&
+      booking.getFullYear() === today.getFullYear();
+    const wasToday =
+      existing.bookingDate.getDate() === today.getDate() &&
+      existing.bookingDate.getMonth() === today.getMonth() &&
+      existing.bookingDate.getFullYear() === today.getFullYear();
 
-    // ── UPDATE MEMBER LEDGER (if amounts changed) ────────────
+    if (isToday && !wasToday) {
+      // Booking changed to today
+      await this.prismaService.lawn.update({
+        where: { id: lawn.id },
+        data: { isBooked: true },
+      });
+    } else if (wasToday && !isToday) {
+      // Booking changed from today
+      await this.prismaService.lawn.update({
+        where: { id: lawn.id },
+        data: { isBooked: false },
+      });
+    }
+
+    // Update previous lawn status if lawn changed
+    if (existing.lawnId !== Number(entityId)) {
+      await this.prismaService.lawn.update({
+        where: { id: existing.lawnId },
+        data: { isBooked: false },
+      });
+    }
+
+    // ── UPDATE MEMBER LEDGER ─────────────────────────────
     if (paidDiff !== 0 || owedDiff !== 0) {
       await this.prismaService.member.update({
-        where: { Sno: booking.memberId },
+        where: { Membership_No: membershipNo },
         data: {
           drAmount: { increment: paidDiff },
           crAmount: { increment: owedDiff },
@@ -1583,13 +2038,66 @@ export class BookingService {
       });
     }
 
-    return { ...updated, prevLawnId: booking.lawnId };
+    // ── CREATE NEW PAYMENT VOUCHER FOR PAYMENT UPDATES ───
+    if (paidDiff > 0) {
+      let voucherType: VoucherType;
+      let voucherAmount = paidDiff;
+
+      // Calculate remaining payment before update
+      const remainingPaymentBeforeUpdate = Number(existing.pendingAmount);
+
+      // Check if this is a final payment that completes the booking
+      if (
+        paymentStatus === ('PAID' as any) &&
+        remainingPaymentBeforeUpdate > 0
+      ) {
+        // This is the final payment - use the actual remaining amount instead of the difference
+        voucherAmount = remainingPaymentBeforeUpdate;
+      }
+
+      // Determine voucher type based on payment status
+      if (paymentStatus === ('PAID' as any)) {
+        voucherType = VoucherType.FULL_PAYMENT;
+      } else {
+        voucherType = VoucherType.HALF_PAYMENT;
+      }
+
+      // Determine remarks based on payment type and amount
+      let paymentDescription = '';
+      if (paymentStatus === ('PAID' as any)) {
+        paymentDescription = 'Full payment';
+      } else {
+        paymentDescription = `Payment of PKR ${voucherAmount.toLocaleString()}`;
+      }
+
+      const remarks = `${lawn.description} | ${paymentDescription} | ${booking.toLocaleDateString()} | ${numberOfGuests} guests`;
+
+      // Create a new voucher for each payment update
+      await this.prismaService.paymentVoucher.create({
+        data: {
+          booking_type: 'LAWN',
+          booking_id: updated.id,
+          membership_no: membershipNo,
+          amount: voucherAmount,
+          payment_mode: paymentMode as any,
+          voucher_type: voucherType,
+          status: VoucherStatus.CONFIRMED,
+          issued_by: 'admin',
+          remarks: remarks,
+          issued_at: new Date(),
+        },
+      });
+    }
+
+    return updated;
   }
 
   async gBookingsLawn() {
     return await this.prismaService.lawnBooking.findMany({
       orderBy: { bookingDate: 'desc' },
-      include: { lawn: { select: { description: true } } },
+      include: { lawn: { select: { id: true, description: true } }, member: {
+        select: {Membership_No: true, Name: true, }
+      } },
     });
   }
   async dBookingLawn(bookingId) {}

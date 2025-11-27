@@ -2,7 +2,7 @@ import { IsNotEmpty, IsOptional } from "class-validator";
 
 export class LawnDto {
   @IsOptional() id?: string;
-  @IsNotEmpty() description: string;
+  @IsOptional() description?: string;
   @IsNotEmpty() lawnCategoryId: string;
   @IsNotEmpty() minGuests: string;
   @IsNotEmpty() maxGuests: string;
@@ -10,7 +10,6 @@ export class LawnDto {
   @IsNotEmpty() guestCharges: string;
   @IsOptional() isOutOfService?: string | boolean;
   @IsOptional() outOfServiceReason?: string;
+  @IsOptional() outOfServiceFrom?: string;
   @IsOptional() outOfServiceUntil?: string;
-  @IsOptional() existingimgs?: string | string[];
-  @IsOptional() files?: Express.Multer.File[];
 }

@@ -113,6 +113,7 @@ model HallBooking {
   paidAmount    Decimal       @default(0.00) @db.Decimal(30, 2)
   pendingAmount Decimal       @default(0.00) @db.Decimal(30, 2)
   eventType     String        @db.VarChar(255)
+  numberOfGuests Int @default(0)
 
   bookingTime BookingOpt @default(NIGHT)
 
@@ -128,6 +129,7 @@ model LawnBooking {
   memberId      Int
   lawnId        Int
   bookingDate   DateTime
+  bookingTime BookingOpt @default(NIGHT)
   guestsCount   Int
   totalPrice    Decimal       @default(0.00) @db.Decimal(30, 2)
   paymentStatus PaymentStatus @default(UNPAID)
@@ -354,7 +356,6 @@ model Lawn {
   lawnCategory       LawnCategory  @relation(fields: [lawnCategoryId], references: [id])
   minGuests          Int?          @default(0)
   maxGuests          Int           @default(0)
-  images             Json          @default("[]") // ← Fixed: [] not {}
   memberCharges      Decimal       @default(0.00) @db.Decimal(30, 2)
   guestCharges       Decimal       @default(0.00) @db.Decimal(30, 2)
   isActive           Boolean       @default(true) // ← NEW
@@ -371,6 +372,7 @@ model Lawn {
 model LawnCategory {
   id        Int      @unique @default(autoincrement())
   category  String   @db.VarChar(200)
+  images Json @default("[]")
   lawns     Lawn[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

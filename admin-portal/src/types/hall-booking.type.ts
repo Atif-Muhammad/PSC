@@ -19,6 +19,7 @@ export interface HallBooking {
   bookingTime: string;
   createdAt: string;
   updatedAt: string;
+  numberOfGuests: number;
   member?: {
     id: string;
     Name: string;
@@ -71,6 +72,7 @@ export interface HallBookingForm {
   pricingType: string; // Use string instead of PricingType
   totalPrice: number;
   paymentStatus: string; // Use string instead of PaymentStatus
+  numberOfGuests: number;
   paidAmount: number;
   pendingAmount: number;
   paymentMode: string;

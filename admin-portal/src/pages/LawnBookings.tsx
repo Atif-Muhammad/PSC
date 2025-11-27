@@ -1,20 +1,220 @@
-import { useState } from "react";
-import { mockLawnBookings, mockLawnCategories, mockLawns } from "@/lib/mockData";
+import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Edit, XCircle } from "lucide-react";
+import { Plus, Edit, XCircle, Loader2, User, Search, Receipt } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getLawnCategories, getBookings, createBooking, updateBooking, deleteBooking, searchMembers, getVouchers } from "../../config/apis";
+
+interface Member {
+  id: number;
+  Name: string;
+  Membership_No: string;
+  Balance?: number;
+  drAmount?: number;
+  crAmount?: number;
+}
+
+interface LawnCategory {
+  id: number;
+  category: string;
+  images: Array<{ url: string; publicId: string }>;
+  lawns: Lawn[];
+}
+
+interface Lawn {
+  id: number;
+  description: string;
+  lawnCategoryId: number;
+  minGuests: number;
+  maxGuests: number;
+  images: any[];
+  memberCharges: string;
+  guestCharges: string;
+  isActive: boolean;
+  isOutOfService: boolean;
+  outOfServiceReason: string | null;
+  outOfServiceFrom: string | null;
+  outOfServiceTo: string | null;
+  isBooked: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface LawnBooking {
+  id: number;
+  memberName: string;
+  lawn: {
+    id: string,
+    description: string
+  };
+  bookingDate: string;
+  guestsCount: number;
+  totalPrice: number;
+  paymentStatus: string;
+  pricingType?: string;
+  paidAmount?: number;
+  remainingAmount?: number;
+  membershipNo?: string;
+  entityId?: string;
+  member?: Member;
+  bookingTime?: string;
+}
+
+interface Voucher {
+  id: number;
+  voucher_no: string;
+  booking_type: string;
+  booking_id: number;
+  membership_no: string;
+  amount: string;
+  payment_mode: string;
+  voucher_type: string;
+  status: string;
+  issued_by: string;
+  issued_at: string;
+  remarks?: string;
+  transaction_id?: string;
+}
+
+
+// Add this component before the LawnBookings component
+const LawnPaymentSection = React.memo(
+  ({
+    form,
+    onChange,
+  }: {
+    form: {
+      paymentStatus: string;
+      totalPrice: number;
+      paidAmount: number;
+      pendingAmount: number;
+    };
+    onChange: (field: string, value: any) => void;
+  }) => {
+    const accounting = {
+      paid: form.paidAmount || 0,
+      owed: form.pendingAmount || 0,
+      total: form.totalPrice || 0
+    };
+
+    return (
+      <div className="md:col-span-2 border-t pt-4">
+        <Label className="text-lg font-semibold">Payment Details</Label>
+
+        <div className="mt-4">
+          <Label>Total Amount</Label>
+          <Input
+            type="text"
+            className="mt-2 font-bold text-lg"
+            value={`PKR ${form.totalPrice.toLocaleString()}`}
+            disabled
+          />
+        </div>
+
+        <div className="mt-4">
+          <Label>Payment Status</Label>
+          <Select
+            value={form.paymentStatus}
+            onValueChange={(val) => onChange("paymentStatus", val)}
+          >
+            <SelectTrigger className="mt-2">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="UNPAID">Unpaid</SelectItem>
+              <SelectItem value="HALF_PAID">Half Paid</SelectItem>
+              <SelectItem value="PAID">Paid</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {form.paymentStatus === "HALF_PAID" && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <div>
+              <Label>Paid Amount (PKR) *</Label>
+              <Input
+                type="number"
+                value={form.paidAmount || ""}
+                onChange={(e) =>
+                  onChange("paidAmount", parseFloat(e.target.value) || 0)
+                }
+                className="mt-2"
+                placeholder="Enter paid amount"
+                min="0"
+                max={form.totalPrice}
+              />
+            </div>
+            <div>
+              <Label>Pending Amount (PKR)</Label>
+              <Input
+                type="number"
+                value={form.pendingAmount}
+                className="mt-2"
+                readOnly
+                disabled
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <Label className="text-lg font-semibold text-blue-800">
+            Accounting Summary
+          </Label>
+          <div className="grid grid-cols-2 gap-2 text-sm mt-2">
+            <div className="text-blue-700">Total Amount:</div>
+            <div className="font-semibold text-right text-blue-700">
+              PKR {form.totalPrice.toLocaleString()}
+            </div>
+
+            <div className="text-green-700">Paid Amount (DR):</div>
+            <div className="font-semibold text-right text-green-700">
+              PKR {accounting.paid.toLocaleString()}
+            </div>
+
+            <div className="text-red-700">Owed Amount (CR):</div>
+            <div className="font-semibold text-right text-red-700">
+              PKR {accounting.owed.toLocaleString()}
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-blue-600">
+            <strong>DR</strong> = Debit (Amount Received), <strong>CR</strong> =
+            Credit (Amount Owed)
+          </div>
+        </div>
+
+        {(form.paymentStatus === "PAID" ||
+          form.paymentStatus === "HALF_PAID") && (
+            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
+              <div className="flex items-center">
+                <Receipt className="h-4 w-4 text-green-600 mr-2" />
+                <span className="text-sm font-medium text-green-800">
+                  {form.paymentStatus === "PAID"
+                    ? "Full Payment Voucher will be generated automatically"
+                    : "Half Payment Voucher will be generated automatically"}
+                </span>
+              </div>
+            </div>
+          )}
+      </div>
+    );
+  }
+);
+
+LawnPaymentSection.displayName = "LawnPaymentSection";
 
 export default function LawnBookings() {
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [editBooking, setEditBooking] = useState<any>(null);
-  const [cancelBooking, setCancelBooking] = useState<any>(null);
+  const [editBooking, setEditBooking] = useState<LawnBooking | null>(null);
+  const [cancelBooking, setCancelBooking] = useState<LawnBooking | null>(null);
+  const [viewVouchers, setViewVouchers] = useState<LawnBooking | null>(null);
   const [paymentFilter, setPaymentFilter] = useState("ALL");
   const [selectedLawnCategory, setSelectedLawnCategory] = useState("");
   const [selectedLawn, setSelectedLawn] = useState("");
@@ -22,21 +222,186 @@ export default function LawnBookings() {
   const [paymentStatus, setPaymentStatus] = useState("UNPAID");
   const [paidAmount, setPaidAmount] = useState(0);
   const [calculatedPrice, setCalculatedPrice] = useState(0);
-  const { toast } = useToast();
+  const [bookingDate, setBookingDate] = useState("");
+  const [guestCount, setGuestCount] = useState(0);
+  const [eventTime, setEventTime] = useState("NIGHT");
 
-  const calculateLawnPrice = (lawnDesc: string, pricing: string) => {
-    const lawn = mockLawns.find(l => l.description === lawnDesc);
+  // Member search states
+  const [memberSearch, setMemberSearch] = useState("");
+  const [showMemberResults, setShowMemberResults] = useState(false);
+  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+
+  const searchTimeoutRef = useRef<NodeJS.Timeout>();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Fetch lawn categories
+  const {
+    data: lawnCategories = [],
+    isLoading: isLoadingCategories,
+  } = useQuery<LawnCategory[]>({
+    queryKey: ["lawn-categories"],
+    queryFn: async () => await getLawnCategories(),
+  });
+
+  // Fetch lawn bookings
+  const {
+    data: lawnBookings = [],
+    isLoading: isLoadingBookings,
+  } = useQuery<LawnBooking[]>({
+    queryKey: ["lawn-bookings"],
+    queryFn: async () => await getBookings("lawns"),
+  });
+
+  // Fetch available lawns when category is selected
+  const {
+    data: availableLawnsData = [],
+    isLoading: isLoadingLawns,
+  } = useQuery({
+    queryKey: ["available-lawns", selectedLawnCategory],
+    queryFn: async () => {
+      if (!selectedLawnCategory) return [];
+      const category = lawnCategories.find(cat => cat.category === selectedLawnCategory);
+      if (!category) return [];
+
+      return category.lawns;
+    },
+    enabled: !!selectedLawnCategory,
+  });
+
+  // Member search query
+  const {
+    data: searchResults = [],
+    isLoading: isSearching,
+    refetch: searchMembersFn,
+  } = useQuery<Member[]>({
+    queryKey: ["memberSearch", memberSearch],
+    queryFn: async () => (await searchMembers(memberSearch)) as Member[],
+    enabled: false,
+  });
+
+  // Fetch vouchers when viewing vouchers
+  const {
+    data: vouchers = [],
+    isLoading: isLoadingVouchers,
+  } = useQuery<Voucher[]>({
+    queryKey: ["lawn-vouchers", viewVouchers?.id],
+    queryFn: () => (viewVouchers ? getVouchers("Lawn", viewVouchers.id) : []),
+    enabled: !!viewVouchers,
+  });
+
+  // Mutations
+  const createMutation = useMutation({
+    mutationFn: (data: any) => createBooking(data),
+    onSuccess: () => {
+      toast({ title: "Lawn booking created successfully" });
+      queryClient.invalidateQueries({ queryKey: ["lawn-bookings"] });
+      setIsAddOpen(false);
+      resetForm();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to create lawn booking",
+        description: error?.message || "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (data: any) => updateBooking(data),
+    onSuccess: () => {
+      toast({ title: "Lawn booking updated successfully" });
+      queryClient.invalidateQueries({ queryKey: ["lawn-bookings"] });
+      setEditBooking(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to update lawn booking",
+        description: error?.message || "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: ({ bookingFor, bookID }: { bookingFor: string; bookID: string }) =>
+      deleteBooking(bookingFor, bookID),
+    onSuccess: () => {
+      toast({ title: "Lawn booking cancelled successfully" });
+      queryClient.invalidateQueries({ queryKey: ["lawn-bookings"] });
+      setCancelBooking(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to cancel lawn booking",
+        description: error?.message || "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Member search handler with debouncing
+  const handleMemberSearch = useCallback((searchTerm: string) => {
+    setMemberSearch(searchTerm);
+
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    searchTimeoutRef.current = setTimeout(() => {
+      if (searchTerm.trim().length >= 2) {
+        searchMembersFn();
+        setShowMemberResults(true);
+      } else {
+        setShowMemberResults(false);
+      }
+    }, 300);
+  }, [searchMembersFn]);
+
+  const handleSearchFocus = useCallback(() => {
+    if (memberSearch.length >= 2 && searchResults.length > 0) {
+      setShowMemberResults(true);
+    }
+  }, [memberSearch.length, searchResults.length]);
+
+  const handleSelectMember = useCallback((member: Member) => {
+    setSelectedMember(member);
+    setMemberSearch("");
+    setShowMemberResults(false);
+  }, []);
+
+  const handleClearMember = useCallback(() => {
+    setSelectedMember(null);
+    setMemberSearch("");
+    setShowMemberResults(false);
+  }, []);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const calculateLawnPrice = (lawnId: string, pricing: string) => {
+    const lawn = availableLawnsData.find((l: Lawn) => l.id.toString() === lawnId);
     if (!lawn) return 0;
-    return pricing === "member" ? lawn.memberCharges : lawn.guestCharges;
+    return pricing === "member" ? parseInt(lawn.memberCharges) : parseInt(lawn.guestCharges);
   };
 
-  const availableLawns = selectedLawnCategory 
-    ? mockLawns.filter(l => l.lawnCategory === selectedLawnCategory)
-    : [];
+  // Filter available lawns based on active status and service status
+  const availableLawns = useMemo(() => {
+    return availableLawnsData.filter((lawn: Lawn) =>
+      lawn.isActive && !lawn.isOutOfService && !lawn.isBooked
+    );
+  }, [availableLawnsData]);
 
-  const filteredBookings = paymentFilter === "ALL" 
-    ? mockLawnBookings 
-    : mockLawnBookings.filter(b => b.paymentStatus === paymentFilter);
+  const filteredBookings = paymentFilter === "ALL"
+    ? lawnBookings
+    : lawnBookings.filter(b => b.paymentStatus === paymentFilter);
 
   const getPaymentBadge = (status: string) => {
     switch (status) {
@@ -49,6 +414,151 @@ export default function LawnBookings() {
       default:
         return <Badge>{status}</Badge>;
     }
+  };
+
+  const getTimeSlotBadge = (timeSlot: string) => {
+    switch (timeSlot) {
+      case "MORNING":
+        return <Badge className="bg-blue-100 text-blue-800">Morning</Badge>;
+      case "EVENING":
+        return <Badge className="bg-orange-100 text-orange-800">Evening</Badge>;
+      case "NIGHT":
+        return <Badge className="bg-purple-100 text-purple-800">Night</Badge>;
+      default:
+        return <Badge>{timeSlot}</Badge>;
+    }
+  };
+
+  const getVoucherBadge = (type: string) => {
+    switch (type) {
+      case "FULL_PAYMENT":
+        return <Badge className="bg-green-100 text-green-800">Full Payment</Badge>;
+      case "HALF_PAYMENT":
+        return <Badge className="bg-blue-100 text-blue-800">Half Payment</Badge>;
+      default:
+        return <Badge>{type}</Badge>;
+    }
+  };
+
+  const getVoucherStatusBadge = (status: string) => {
+    switch (status) {
+      case "CONFIRMED":
+        return <Badge className="bg-green-100 text-green-800">Confirmed</Badge>;
+      case "PENDING":
+        return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>;
+      case "CANCELLED":
+        return <Badge variant="destructive">Cancelled</Badge>;
+      default:
+        return <Badge>{status}</Badge>;
+    }
+  };
+
+  const handleLawnCategoryChange = (value: string) => {
+    setSelectedLawnCategory(value);
+    setSelectedLawn("");
+    setCalculatedPrice(0);
+  };
+
+  const handleLawnChange = (value: string) => {
+    setSelectedLawn(value);
+    setCalculatedPrice(calculateLawnPrice(value, pricingType));
+  };
+
+  const handlePricingTypeChange = (value: string) => {
+    setPricingType(value);
+    if (selectedLawn) {
+      setCalculatedPrice(calculateLawnPrice(selectedLawn, value));
+    }
+  };
+
+  const resetForm = () => {
+    setSelectedLawnCategory("");
+    setSelectedLawn("");
+    setCalculatedPrice(0);
+    setPaymentStatus("UNPAID");
+    setPaidAmount(0);
+    setPricingType("member");
+    setBookingDate("");
+    setGuestCount(0);
+    setEventTime("NIGHT");
+    setSelectedMember(null);
+    setMemberSearch("");
+    setShowMemberResults(false);
+  };
+
+  const handleCreateBooking = () => {
+    if (!selectedMember || !selectedLawn || !bookingDate || guestCount < 1) {
+      toast({
+        title: "Please fill all required fields",
+        description: "Member, lawn, booking date, and guest count are required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const selectedLawnData = availableLawns.find((l: Lawn) => l.id.toString() === selectedLawn);
+    if (!selectedLawnData) return;
+
+    if (guestCount < selectedLawnData.minGuests || guestCount > selectedLawnData.maxGuests) {
+      toast({
+        title: "Invalid guest count",
+        description: `Guest count must be between ${selectedLawnData.minGuests} and ${selectedLawnData.maxGuests} for this lawn`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const payload = {
+      category: "Lawn",
+      membershipNo: selectedMember.Membership_No,
+      entityId: selectedLawn,
+      bookingDate: new Date(bookingDate).toISOString(),
+      totalPrice: calculatedPrice.toString(),
+      paymentStatus: paymentStatus,
+      numberOfGuests: guestCount,
+      paidAmount: paidAmount,
+      pendingAmount: calculatedPrice - paidAmount,
+      pricingType: pricingType,
+      paymentMode: "CASH",
+      eventTime: eventTime,
+    };
+
+    createMutation.mutate(payload);
+  };
+
+  const handleUpdateBooking = () => {
+    if (!editBooking) return;
+
+    const payload = {
+      id: editBooking.id.toString(),
+      category: "Lawn",
+      membershipNo: editBooking.member?.Membership_No || "",
+      entityId: editBooking.lawn?.id || "",
+      bookingDate: editBooking.bookingDate,
+      totalPrice: editBooking.totalPrice.toString(),
+      paymentStatus: editBooking.paymentStatus,
+      numberOfGuests: editBooking.guestsCount,
+      paidAmount: editBooking.paidAmount || 0,
+      pendingAmount: editBooking.remainingAmount || 0,
+      pricingType: editBooking.pricingType || "member",
+      paymentMode: "CASH",
+      eventTime: editBooking.bookingTime || "NIGHT",
+    };
+
+    updateMutation.mutate(payload);
+  };
+
+  const handleDeleteBooking = () => {
+    if (cancelBooking) {
+      deleteMutation.mutate({
+        bookingFor: "lawns",
+        bookID: cancelBooking.id.toString(),
+      });
+    }
+  };
+
+  const handleViewVouchers = (booking: LawnBooking) => {
+    setViewVouchers(booking);
   };
 
   return (
@@ -70,7 +580,10 @@ export default function LawnBookings() {
               <SelectItem value="UNPAID">Unpaid</SelectItem>
             </SelectContent>
           </Select>
-          <Dialog open={isAddOpen} onOpenChange={(open) => { setIsAddOpen(open); if (!open) setSelectedLawnCategory(""); }}>
+          <Dialog open={isAddOpen} onOpenChange={(open) => {
+            setIsAddOpen(open);
+            if (!open) resetForm();
+          }}>
             <DialogTrigger asChild>
               <Button className="gap-2">
                 <Plus className="h-4 w-4" />
@@ -82,45 +595,163 @@ export default function LawnBookings() {
                 <DialogTitle>Create Lawn Booking</DialogTitle>
               </DialogHeader>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
+                {/* Member Search */}
+                <div className="md:col-span-2">
+                  <Label>Member *</Label>
+                  <div className="relative mt-2">
+                    {selectedMember ? (
+                      <div className="p-3 border border-green-200 bg-green-50 rounded-md">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="font-medium flex items-center">
+                              <User className="h-4 w-4 mr-2 text-green-600" />
+                              {selectedMember.Name}
+                            </div>
+                            <div className="text-sm text-green-600 mt-1">
+                              Membership: #{selectedMember.Membership_No}
+                              {selectedMember.Balance !== undefined && (
+                                <div className="mt-1">
+                                  <Badge
+                                    variant={selectedMember.Balance >= 0 ? "outline" : "destructive"}
+                                    className="bg-green-100 text-green-800"
+                                  >
+                                    Balance: PKR {selectedMember.Balance.toLocaleString()}
+                                  </Badge>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleClearMember}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            Change
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            placeholder="Search member by name or membership number..."
+                            className="pl-10 pr-10"
+                            value={memberSearch}
+                            onChange={(e) => handleMemberSearch(e.target.value)}
+                            onFocus={handleSearchFocus}
+                          />
+                          {isSearching && (
+                            <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin text-muted-foreground" />
+                          )}
+                        </div>
+                        {showMemberResults && (
+                          <div className="absolute z-10 w-full mt-1 bg-popover border border-border rounded-md shadow-lg max-h-60 overflow-auto">
+                            {searchResults.length === 0 ? (
+                              <div className="p-4 text-center text-muted-foreground">
+                                No members found
+                              </div>
+                            ) : (
+                              searchResults.map((member) => (
+                                <div
+                                  key={member.id}
+                                  className="p-3 hover:bg-accent cursor-pointer border-b last:border-b-0"
+                                  onClick={() => handleSelectMember(member)}
+                                >
+                                  <div className="font-medium">{member.Name}</div>
+                                  <div className="text-sm text-muted-foreground">
+                                    Membership: #{member.Membership_No}
+                                    {member.Balance !== undefined && (
+                                      <span className={`ml-2 ${member.Balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                        Balance: PKR {member.Balance.toLocaleString()}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+
                 <div>
-                  <Label>Member Name</Label>
-                  <Input placeholder="Member name" className="mt-2" />
+                  <Label>Lawn Category *</Label>
+                  {isLoadingCategories ? (
+                    <div className="h-10 bg-muted animate-pulse rounded-md mt-2" />
+                  ) : (
+                    <Select value={selectedLawnCategory} onValueChange={handleLawnCategoryChange}>
+                      <SelectTrigger className="mt-2">
+                        <SelectValue placeholder="Select lawn category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {lawnCategories.map((cat: LawnCategory) => (
+                          <SelectItem key={cat.id} value={cat.category}>{cat.category}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
                 <div>
-                  <Label>Lawn Category</Label>
-                  <Select value={selectedLawnCategory} onValueChange={setSelectedLawnCategory}>
-                    <SelectTrigger className="mt-2">
-                      <SelectValue placeholder="Select lawn category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {mockLawnCategories.map(cat => (
-                        <SelectItem key={cat.id} value={cat.category}>{cat.category}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>Lawn *</Label>
+                  {isLoadingLawns ? (
+                    <div className="h-10 bg-muted animate-pulse rounded-md mt-2" />
+                  ) : (
+                    <Select
+                      value={selectedLawn}
+                      onValueChange={handleLawnChange}
+                      disabled={!selectedLawnCategory || availableLawns.length === 0}
+                    >
+                      <SelectTrigger className="mt-2">
+                        <SelectValue
+                          placeholder={
+                            !selectedLawnCategory
+                              ? "Select category first"
+                              : availableLawns.length === 0
+                                ? "No available lawns"
+                                : "Select lawn"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableLawns.map((lawn: Lawn) => (
+                          <SelectItem key={lawn.id} value={lawn.id.toString()}>
+                            <div className="flex flex-col">
+                              <span>{lawn.description}</span>
+                              <span className="text-xs text-muted-foreground">
+                                Capacity: {lawn.minGuests}-{lawn.maxGuests} guests
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                Member: PKR {parseInt(lawn.memberCharges).toLocaleString()} |
+                                Guest: PKR {parseInt(lawn.guestCharges).toLocaleString()}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
                 <div>
-                  <Label>Lawn</Label>
-                  <Select value={selectedLawn} onValueChange={(val) => {
-                    setSelectedLawn(val);
-                    setCalculatedPrice(calculateLawnPrice(val, pricingType));
-                  }} disabled={!selectedLawnCategory}>
+                  <Label>Event Time *</Label>
+                  <Select value={eventTime} onValueChange={setEventTime}>
                     <SelectTrigger className="mt-2">
-                      <SelectValue placeholder={selectedLawnCategory ? "Select lawn" : "Select category first"} />
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableLawns.map(lawn => (
-                        <SelectItem key={lawn.id} value={lawn.description}>{lawn.description}</SelectItem>
-                      ))}
+                      <SelectItem value="MORNING">Morning (8 AM - 12 PM)</SelectItem>
+                      <SelectItem value="EVENING">Evening (4 PM - 8 PM)</SelectItem>
+                      <SelectItem value="NIGHT">Night (8 PM - 12 AM)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
                   <Label>Pricing Type</Label>
-                  <Select value={pricingType} onValueChange={(val) => {
-                    setPricingType(val);
-                    setCalculatedPrice(calculateLawnPrice(selectedLawn, val));
-                  }}>
+                  <Select value={pricingType} onValueChange={handlePricingTypeChange}>
                     <SelectTrigger className="mt-2">
                       <SelectValue />
                     </SelectTrigger>
@@ -131,18 +762,37 @@ export default function LawnBookings() {
                   </Select>
                 </div>
                 <div>
-                  <Label>Booking Date</Label>
-                  <Input type="date" className="mt-2" />
+                  <Label>Booking Date *</Label>
+                  <Input
+                    type="date"
+                    className="mt-2"
+                    value={bookingDate}
+                    onChange={(e) => setBookingDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                  />
                 </div>
                 <div>
-                  <Label>Guest Count</Label>
-                  <Input type="number" placeholder="150" className="mt-2" />
+                  <Label>Guest Count *</Label>
+                  <Input
+                    type="number"
+                    placeholder="150"
+                    className="mt-2"
+                    value={guestCount || ""}
+                    onChange={(e) => setGuestCount(parseInt(e.target.value) || 0)}
+                    min={selectedLawn ? availableLawns.find((l: Lawn) => l.id.toString() === selectedLawn)?.minGuests || 1 : 1}
+                    max={selectedLawn ? availableLawns.find((l: Lawn) => l.id.toString() === selectedLawn)?.maxGuests : undefined}
+                  />
                 </div>
                 <div className="md:col-span-2">
                   <Label>Total Price</Label>
-                  <Input type="text" className="mt-2 font-bold text-lg" value={`PKR ${calculatedPrice.toLocaleString()}`} disabled />
+                  <Input
+                    type="text"
+                    className="mt-2 font-bold text-lg"
+                    value={`PKR ${calculatedPrice.toLocaleString()}`}
+                    disabled
+                  />
                 </div>
-                <div>
+                {/* <div>
                   <Label>Payment Status</Label>
                   <Select value={paymentStatus} onValueChange={setPaymentStatus}>
                     <SelectTrigger className="mt-2">
@@ -159,18 +809,19 @@ export default function LawnBookings() {
                   <>
                     <div>
                       <Label>Paid Amount (PKR)</Label>
-                      <Input 
-                        type="number" 
-                        value={paidAmount || ""} 
+                      <Input
+                        type="number"
+                        value={paidAmount || ""}
                         onChange={(e) => setPaidAmount(parseFloat(e.target.value) || 0)}
                         className="mt-2"
                         placeholder="Enter paid amount"
+                        max={calculatedPrice}
                       />
                     </div>
                     <div>
                       <Label>Remaining Amount (PKR)</Label>
-                      <Input 
-                        type="number" 
+                      <Input
+                        type="number"
                         value={calculatedPrice - paidAmount}
                         className="mt-2"
                         readOnly
@@ -178,26 +829,55 @@ export default function LawnBookings() {
                       />
                     </div>
                   </>
-                )}
+                )} */}
+                <LawnPaymentSection
+                  form={{
+                    paymentStatus: paymentStatus,
+                    totalPrice: calculatedPrice,
+                    paidAmount: paidAmount,
+                    pendingAmount: calculatedPrice - paidAmount
+                  }}
+                  onChange={(field, value) => {
+                    if (field === "paymentStatus") {
+                      setPaymentStatus(value);
+                      // Recalculate amounts when payment status changes
+                      if (value === "PAID") {
+                        setPaidAmount(calculatedPrice);
+                      } else if (value === "UNPAID") {
+                        setPaidAmount(0);
+                      } else if (value === "HALF_PAID") {
+                        // Set to half if no amount is set yet
+                        if (paidAmount === 0) {
+                          setPaidAmount(calculatedPrice / 2);
+                        }
+                      }
+                    } else if (field === "paidAmount") {
+                      setPaidAmount(value);
+                    }
+                  }}
+                />
               </div>
+
               <DialogFooter>
                 <Button variant="outline" onClick={() => {
                   setIsAddOpen(false);
-                  setSelectedLawnCategory("");
-                  setSelectedLawn("");
-                  setCalculatedPrice(0);
-                  setPaymentStatus("UNPAID");
-                  setPaidAmount(0);
-                }}>Cancel</Button>
-                <Button onClick={() => { 
-                  toast({ title: "Booking created", description: `Total: PKR ${calculatedPrice.toLocaleString()}` }); 
-                  setIsAddOpen(false); 
-                  setSelectedLawnCategory(""); 
-                  setSelectedLawn("");
-                  setCalculatedPrice(0);
-                  setPaymentStatus("UNPAID");
-                  setPaidAmount(0);
-                }}>Create</Button>
+                  resetForm();
+                }}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleCreateBooking}
+                  disabled={!selectedMember || !selectedLawn || calculatedPrice === 0 || createMutation.isPending}
+                >
+                  {createMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      Creating...
+                    </>
+                  ) : (
+                    "Create Booking"
+                  )}
+                </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -206,68 +886,165 @@ export default function LawnBookings() {
 
       <Card>
         <CardContent className="p-0 overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Member</TableHead>
-                <TableHead>Lawn</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Guests</TableHead>
-                <TableHead>Total Price</TableHead>
-                <TableHead>Payment</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredBookings.map((booking) => (
-                <TableRow key={booking.id}>
-                  <TableCell className="font-medium">{booking.memberName}</TableCell>
-                  <TableCell>{booking.lawnName}</TableCell>
-                  <TableCell>{booking.bookingDate}</TableCell>
-                  <TableCell>{booking.guestsCount}</TableCell>
-                  <TableCell>PKR {booking.totalPrice.toLocaleString()}</TableCell>
-                  <TableCell>{getPaymentBadge(booking.paymentStatus)}</TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" onClick={() => setEditBooking(booking)}>
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="text-destructive" onClick={() => setCancelBooking(booking)}>
-                      <XCircle className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
+          {isLoadingBookings ? (
+            <div className="flex justify-center items-center py-32">
+              <Loader2 className="h-12 w-12 animate-spin text-muted-foreground" />
+            </div>
+          ) : filteredBookings.length === 0 ? (
+            <div className="text-center py-32 text-muted-foreground text-lg">
+              No lawn bookings found
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Member</TableHead>
+                  <TableHead>Lawn</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Time</TableHead>
+                  <TableHead>Guests</TableHead>
+                  <TableHead>Total Price</TableHead>
+                  <TableHead>Payment</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredBookings.map((booking) => (
+                  <TableRow key={booking.id}>
+                    <TableCell className="font-medium">
+                      {booking.member?.Name || booking.memberName}
+                      {booking.member?.Membership_No && (
+                        <div className="text-xs text-muted-foreground">
+                          #{booking.member.Membership_No}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell>{booking.lawn?.description}</TableCell>
+                    <TableCell>{new Date(booking.bookingDate).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      {getTimeSlotBadge(booking.bookingTime || "NIGHT")}
+                    </TableCell>
+                    <TableCell>{booking.guestsCount}</TableCell>
+                    <TableCell>PKR {booking.totalPrice.toLocaleString()}</TableCell>
+                    <TableCell>{getPaymentBadge(booking.paymentStatus)}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => setEditBooking(booking)} title="Edit Booking">
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        {(booking.paymentStatus === "PAID" || booking.paymentStatus === "HALF_PAID") && (
+                          <Button variant="ghost" size="icon" onClick={() => handleViewVouchers(booking)} title="View Vouchers">
+                            <Receipt className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => setCancelBooking(booking)} title="Cancel Booking">
+                          <XCircle className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
-      {/* Edit & Delete Dialogs */}
+      {/* Edit Dialog */}
       <Dialog open={!!editBooking} onOpenChange={() => setEditBooking(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Booking</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
-            <div>
-              <Label>Member Name</Label>
-              <Input defaultValue={editBooking?.memberName} className="mt-2" />
+            {/* Member Information Display (Read-only) */}
+            <div className="md:col-span-2">
+              <Label>Member Information</Label>
+              <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <div className="font-medium text-sm flex items-center">
+                      <User className="h-4 w-4 mr-2 text-blue-600" />
+                      {editBooking?.member?.Name || editBooking?.memberName}
+                    </div>
+                    <div className="text-xs text-blue-600 mt-1">
+                      {editBooking?.member?.Membership_No && `Membership: #${editBooking.member.Membership_No}`}
+                      {editBooking?.member?.Balance !== undefined && (
+                        <div className="mt-1 space-y-1">
+                          <Badge
+                            variant={editBooking.member.Balance >= 0 ? "outline" : "destructive"}
+                            className="bg-blue-100 text-blue-800"
+                          >
+                            Account Balance: PKR {editBooking.member.Balance.toLocaleString()}
+                          </Badge>
+                          <div className="text-xs">
+                            <span className="text-green-700">
+                              DR: PKR {editBooking.member.drAmount?.toLocaleString() || "0"}
+                            </span>
+                            {" • "}
+                            <span className="text-red-700">
+                              CR: PKR {editBooking.member.crAmount?.toLocaleString() || "0"}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="bg-blue-100 text-blue-800">
+                    Current Booking
+                  </Badge>
+                </div>
+              </div>
             </div>
+
             <div>
               <Label>Lawn Name</Label>
-              <Input defaultValue={editBooking?.lawnName} className="mt-2" />
+              <Input
+                value={editBooking?.lawn?.description || ""}
+                onChange={(e) => setEditBooking(prev => prev ? { ...prev, lawnName: e.target.value } : null)}
+                className="mt-2"
+              />
             </div>
             <div>
               <Label>Booking Date</Label>
-              <Input type="date" defaultValue={editBooking?.bookingDate} className="mt-2" />
+              <Input
+                type="date"
+                value={editBooking?.bookingDate ? new Date(editBooking.bookingDate).toISOString().split('T')[0] : ""}
+                onChange={(e) => setEditBooking(prev => prev ? { ...prev, bookingDate: e.target.value } : null)}
+                className="mt-2"
+              />
+            </div>
+            <div>
+              <Label>Event Time</Label>
+              <Select
+                value={editBooking?.bookingTime || "NIGHT"}
+                onValueChange={(value) => setEditBooking(prev => prev ? { ...prev, bookingTime: value } : null)}
+              >
+                <SelectTrigger className="mt-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="MORNING">Morning (8 AM - 12 PM)</SelectItem>
+                  <SelectItem value="EVENING">Evening (4 PM - 8 PM)</SelectItem>
+                  <SelectItem value="NIGHT">Night (8 PM - 12 AM)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label>Guest Count</Label>
-              <Input type="number" defaultValue={editBooking?.guestsCount} className="mt-2" />
+              <Input
+                type="number"
+                value={editBooking?.guestsCount || ""}
+                onChange={(e) => setEditBooking(prev => prev ? { ...prev, guestsCount: parseInt(e.target.value) || 0 } : null)}
+                className="mt-2"
+              />
             </div>
             <div>
               <Label>Pricing Type</Label>
-              <Select defaultValue={editBooking?.pricingType}>
+              <Select
+                value={editBooking?.pricingType || "member"}
+                onValueChange={(value) => setEditBooking(prev => prev ? { ...prev, pricingType: value } : null)}
+              >
                 <SelectTrigger className="mt-2">
                   <SelectValue />
                 </SelectTrigger>
@@ -279,66 +1056,217 @@ export default function LawnBookings() {
             </div>
             <div>
               <Label>Total Price (PKR)</Label>
-              <Input type="number" defaultValue={editBooking?.totalPrice} className="mt-2" />
+              <Input
+                type="number"
+                value={editBooking?.totalPrice || ""}
+                onChange={(e) => setEditBooking(prev => prev ? { ...prev, totalPrice: parseFloat(e.target.value) || 0 } : null)}
+                className="mt-2"
+              />
             </div>
-            <div>
-              <Label>Payment Status</Label>
-              <Select defaultValue={editBooking?.paymentStatus}>
-                <SelectTrigger className="mt-2">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="UNPAID">Unpaid</SelectItem>
-                  <SelectItem value="HALF_PAID">Half Paid</SelectItem>
-                  <SelectItem value="PAID">Paid</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {editBooking?.paymentStatus === "HALF_PAID" && (
-              <>
-                <div>
-                  <Label>Paid Amount (PKR)</Label>
-                  <Input 
-                    type="number" 
-                    defaultValue={editBooking?.paidAmount || editBooking?.totalPrice / 2} 
-                    className="mt-2"
-                    onChange={(e) => {
-                      const paidAmount = parseFloat(e.target.value) || 0;
-                      const remaining = editBooking?.totalPrice - paidAmount;
-                      const remainingInput = document.querySelector('[data-remaining-lawn]') as HTMLInputElement;
-                      if (remainingInput) remainingInput.value = remaining.toString();
-                    }}
-                  />
-                </div>
-                <div>
-                  <Label>Remaining Amount (PKR)</Label>
-                  <Input 
-                    type="number" 
-                    defaultValue={editBooking?.remainingAmount || editBooking?.totalPrice / 2}
-                    className="mt-2"
-                    data-remaining-lawn
-                    readOnly
-                  />
-                </div>
-              </>
-            )}
+
+            {/* Payment Section with Accounting Summary */}
+            <LawnPaymentSection
+              form={{
+                paymentStatus: editBooking?.paymentStatus || "UNPAID",
+                totalPrice: editBooking?.totalPrice || 0,
+                paidAmount: editBooking?.paidAmount || 0,
+                pendingAmount: editBooking?.remainingAmount || 0
+              }}
+              onChange={(field, value) => {
+                setEditBooking(prev => {
+                  if (!prev) return null;
+
+                  const updated = { ...prev };
+
+                  if (field === "paymentStatus") {
+                    updated.paymentStatus = value;
+                    // Recalculate amounts when payment status changes
+                    if (value === "PAID") {
+                      updated.paidAmount = updated.totalPrice;
+                      updated.remainingAmount = 0;
+                    } else if (value === "UNPAID") {
+                      updated.paidAmount = 0;
+                      updated.remainingAmount = updated.totalPrice;
+                    } else if (value === "HALF_PAID") {
+                      // Keep existing paid amount or set to half
+                      const currentPaid = updated.paidAmount || 0;
+                      if (currentPaid === 0) {
+                        updated.paidAmount = updated.totalPrice / 2;
+                        updated.remainingAmount = updated.totalPrice / 2;
+                      }
+                    }
+                  } else if (field === "paidAmount") {
+                    updated.paidAmount = value;
+                    updated.remainingAmount = updated.totalPrice - value;
+                  }
+
+                  return updated;
+                });
+              }}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditBooking(null)}>Cancel</Button>
-            <Button onClick={() => { toast({ title: "Booking updated" }); setEditBooking(null); }}>Update</Button>
+            <Button
+              onClick={() => {
+                if (!editBooking) return;
+
+                const payload = {
+                  id: editBooking.id.toString(),
+                  category: "Lawn",
+                  membershipNo: editBooking.member?.Membership_No || editBooking.membershipNo || "", // Fixed: include membership number
+                  entityId: editBooking.lawn?.id || "",
+                  bookingDate: editBooking.bookingDate,
+                  totalPrice: editBooking.totalPrice.toString(),
+                  paymentStatus: editBooking.paymentStatus,
+                  numberOfGuests: editBooking.guestsCount,
+                  paidAmount: editBooking.paidAmount || 0,
+                  pendingAmount: editBooking.remainingAmount || 0,
+                  pricingType: editBooking.pricingType || "member",
+                  paymentMode: "CASH",
+                  eventTime: editBooking.bookingTime || "NIGHT",
+                };
+
+                updateMutation.mutate(payload);
+              }}
+              disabled={updateMutation.isPending}
+            >
+              {updateMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Updating...
+                </>
+              ) : (
+                "Update Booking"
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* Vouchers Dialog */}
+      <Dialog open={!!viewVouchers} onOpenChange={(open) => {
+        if (!open) setViewVouchers(null);
+      }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Payment Vouchers</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            {isLoadingVouchers ? (
+              <div className="flex justify-center items-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : vouchers.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Receipt className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>No vouchers generated yet.</p>
+                <p className="text-sm">
+                  Vouchers will be created when payments are made.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4 max-h-96 overflow-y-auto">
+                {vouchers.map((voucher) => (
+                  <div key={voucher.id} className="p-4 border rounded-lg bg-muted/50">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          {getVoucherBadge(voucher.voucher_type)}
+                          {getVoucherStatusBadge(voucher.status)}
+                        </div>
+                        <div className="text-sm font-mono text-muted-foreground">
+                          Voucher #: {voucher.voucher_no}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-bold text-green-600">
+                          PKR {parseFloat(voucher.amount).toLocaleString()}
+                        </div>
+                        <div className="text-xs text-muted-foreground capitalize">
+                          {voucher.payment_mode?.toLowerCase() || "cash"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
+                      <div>
+                        <div className="font-medium">Booking Type</div>
+                        <div>{voucher.booking_type}</div>
+                      </div>
+                      <div>
+                        <div className="font-medium">Membership No</div>
+                        <div>{voucher.membership_no}</div>
+                      </div>
+                      <div>
+                        <div className="font-medium">Issued By</div>
+                        <div>{voucher.issued_by || "—"}</div>
+                      </div>
+                      <div>
+                        <div className="font-medium">Issued At</div>
+                        <div>
+                          {voucher.issued_at
+                            ? new Date(voucher.issued_at).toLocaleDateString()
+                            : "—"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {voucher.transaction_id && (
+                      <div className="mt-2 text-sm">
+                        <div className="font-medium">Transaction ID</div>
+                        <div className="font-mono text-muted-foreground">
+                          {voucher.transaction_id}
+                        </div>
+                      </div>
+                    )}
+
+                    {voucher.remarks && (
+                      <div className="mt-3 p-2 bg-white border rounded text-sm">
+                        <div className="font-medium">Remarks</div>
+                        <div className="text-muted-foreground">
+                          {voucher.remarks}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setViewVouchers(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Dialog */}
       <Dialog open={!!cancelBooking} onOpenChange={() => setCancelBooking(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Cancel Booking</DialogTitle>
           </DialogHeader>
-          <p className="py-4">Are you sure you want to cancel this booking?</p>
+          <p className="py-4">
+            Are you sure you want to cancel this booking for <strong>{cancelBooking?.memberName}</strong>?
+          </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCancelBooking(null)}>No</Button>
-            <Button variant="destructive" onClick={() => { toast({ title: "Booking cancelled" }); setCancelBooking(null); }}>Cancel Booking</Button>
+            <Button variant="outline" onClick={() => setCancelBooking(null)}>
+              No
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteBooking}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Cancelling...
+                </>
+              ) : (
+                "Cancel Booking"
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

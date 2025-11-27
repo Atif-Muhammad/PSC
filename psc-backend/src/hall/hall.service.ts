@@ -146,9 +146,9 @@ export class HallService {
     const outOfServiceTo = payload.outOfServiceTo
       ? new Date(payload.outOfServiceTo)
       : null;
-
+    // console.log(payload)
     // Check for reservation and booking conflicts only if setting out-of-service dates
-    if (payload.isOutOfService && outOfServiceFrom && outOfServiceTo) {
+    if (payload.isOutOfService && outOfServiceFrom && outOfServiceTo && !payload.isActive) {
       // Check for conflicting reservations
       const conflictingReservations =
         await this.prismaService.hallReservation.findMany({
@@ -211,15 +211,13 @@ export class HallService {
       outOfServiceFrom <= now &&
       outOfServiceTo &&
       outOfServiceTo >= now;
-    const isScheduledForOutOfService =
-      payload.isOutOfService && outOfServiceFrom && outOfServiceFrom > now;
+    const isScheduledForOutOfService = payload.isOutOfService && !!outOfServiceFrom && outOfServiceFrom > now;
 
     // Hall should be active if:
     // - It's not out of service at all, OR
     // - It's only scheduled for future maintenance
-    const shouldBeActive =
-      !payload.isOutOfService || isScheduledForOutOfService;
-
+    const shouldBeActive = !payload.isOutOfService || isScheduledForOutOfService;
+    // console.log(shouldBeActive)
     // Hall should be marked as out of service only if it's currently out of service
     const shouldBeMarkedOutOfService = shouldBeOutOfServiceNow;
 

@@ -122,33 +122,9 @@ export class BookingController {
       return this.bookingService.dBookingPhotoshoot(Number(bookID.bookID));
   }
 
-  // members bookings
-  // @Post('member/booking/room')
-  // async memberBookingRoom(@Body() payload: any) {
-  //   const {membership_no} = payload.consumerInfo;
-  //   const {checkIn, checkOut, numberOfRooms, numberOfAdults, numberOfChildren, pricingType, specialRequest, totalPrice, selectedRoomIds} = payload.bookingData;
-  //   if(!payload.consumerInfo.membership_no) return new NotFoundException("membership number must be provided")
-  //   const data = {
-  //     membershipNo: membership_no,
-  //     entityId: payload.bookingData.roomTypeId,
-  //     category: 'Room',
-  //     checkIn: payload.checkIn,
-  //     checkOut: payload.checkOut,
-  //     numberOfRooms: payload.numberOfRooms,
-  //     numberOfAdults: payload.numberOfAdults,
-  //     numberOfChildren: payload.numberOfChildren,
-  //     pricingType: payload.pricingType,
-  //     specialRequest: payload.specialRequest,
-  //     totalPrice: payload.totalPrice,
-  //     selectedRoomIds: payload.selectedRoomIds,
-  //     paymentStatus: 'PAID',
-  //     paidAmount: payload.totalPrice,
-  //     pendingAmount: 0,
-  //     paymentMode: 'ONLINE',
-  //   };
-  //   return await this.bookingService.cBookingRoomMember(data);
 
-  // }
+  ////////////////////////////////////////////////////////////////////////////
+  // member bookings
   @Post('member/booking/room')
   async memberBookingRoom(@Body() payload: any) {
     const { membership_no } = payload.consumerInfo;
@@ -195,8 +171,55 @@ export class BookingController {
       paymentMode: 'ONLINE',
     };
 
-    console.log('Processing member booking with data:', data);
-
     return await this.bookingService.cBookingRoomMember(data);
+  }
+
+  @Post('member/booking/hall')
+  async memberBookingHall(@Body() payload: any) {
+    const { membership_no } = payload.consumerInfo;
+    const {
+      hallId,
+      bookingDate,
+      eventTime, // Time slot: MORNING, EVENING, NIGHT
+      eventType,
+      pricingType,
+      specialRequest,
+      totalPrice,
+    } = payload.bookingData;
+
+    if (!membership_no) {
+      throw new NotFoundException('Membership number must be provided');
+    }
+
+    // Validate required fields
+    if (!hallId) {
+      throw new BadRequestException('Hall ID is required');
+    }
+    if (!bookingDate) {
+      throw new BadRequestException('Booking date is required');
+    }
+    if (!eventTime) {
+      throw new BadRequestException('Event time slot is required');
+    }
+    if (!eventType) {
+      throw new BadRequestException('Event type is required');
+    }
+
+    const data = {
+      membershipNo: membership_no,
+      entityId: hallId,
+      bookingDate: bookingDate,
+      eventTime: eventTime, // MORNING, EVENING, or NIGHT
+      eventType: eventType,
+      pricingType: pricingType,
+      specialRequests: specialRequest || '',
+      totalPrice: totalPrice,
+      paymentStatus: 'PAID',
+      paidAmount: totalPrice,
+      pendingAmount: 0,
+      paymentMode: 'ONLINE',
+    };
+
+    return await this.bookingService.cBookingHallMember(data);
   }
 }
