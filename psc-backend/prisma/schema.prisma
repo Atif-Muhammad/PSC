@@ -51,6 +51,8 @@ model Member {
   sportsSubscriptions SportSubscription[]
   RoomHolding         Room[]
   hallHolding Hall[]
+  lawnHolding Lawn[]
+  photoshootHolding Photoshoot[]
 
   totalBookings   Int       @default(0)
   drAmount        Decimal   @default(0.00) @db.Decimal(12, 2)
@@ -149,6 +151,8 @@ model PhotoshootBooking {
   memberId      Int
   photoshootId  Int
   bookingDate   DateTime
+  startTime DateTime
+  endTime DateTime
   totalPrice    Decimal       @default(0.00) @db.Decimal(30, 2)
   paymentStatus PaymentStatus @default(UNPAID)
   pricingType   String
@@ -363,6 +367,12 @@ model Lawn {
   outOfServiceReason String?       @db.VarChar(300)
   outOfServiceFrom   DateTime?
   outOfServiceTo     DateTime?
+
+  onHold Boolean @default(false)
+  holdExpiry DateTime?
+  holdBy     String?
+  holdMember Member?   @relation(fields: [holdBy], references: [Membership_No])
+
   isBooked           Boolean       @default(false)
   bookings           LawnBooking[]
   createdAt          DateTime      @default(now())
@@ -388,7 +398,9 @@ model Photoshoot {
 
   isBooked Boolean             @default(false)
   bookings PhotoshootBooking[]
-
+  onHold Boolean @default(false)
+  holdBy     String?
+  holdMember Member?   @relation(fields: [holdBy], references: [Membership_No])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

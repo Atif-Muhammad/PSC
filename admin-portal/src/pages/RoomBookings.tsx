@@ -421,7 +421,7 @@ export default function RoomBookings() {
 
     // Validate dates
     const checkInDate = new Date(form.checkIn);
-    console.log(checkInDate)
+    // console.log(checkInDate)
     const checkOutDate = new Date(form.checkOut);
 
     // Normalize dates to start of day for comparison

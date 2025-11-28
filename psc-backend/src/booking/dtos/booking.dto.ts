@@ -41,8 +41,8 @@ export class BookingDto{
     photoshootTime?: string | null
     @IsOptional()
     guestsCount?: string | null
-    @IsNotEmpty({message: "Number of Guests must be specified"})
-    numberOfGuests: number
+    @IsOptional()
+    numberOfGuests?: number
     
     @IsNotEmpty({message: "Total Price must be specified"})
     totalPrice: string
@@ -52,8 +52,8 @@ export class BookingDto{
     pricingType: string
     @IsOptional()
     paidAmount: string | number
-    @IsNotEmpty({message: "Pending amount must be specified"})
-    pendingAmount: string |number
+    @IsOptional()
+    pendingAmount?: string |number
     @IsEnum(PaymentMode, {message: "payment mode must be provided"})
     paymentMode: PaymentMode
     @IsOptional()

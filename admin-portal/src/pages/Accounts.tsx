@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { mockMembers, mockPaymentVouchers, mockMemberBookingHistory } from "@/lib/mockData";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -10,26 +9,78 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { exportVoucherPDF } from "@/lib/pdfExport";
 
+const API_BASE_URL = "http://localhost:3000";
+
 export default function Accounts() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMember, setSelectedMember] = useState<any>(null);
+  const [members, setMembers] = useState<any[]>([]);
+  const [memberVouchers, setMemberVouchers] = useState<any[]>([]);
+  const [memberBookings, setMemberBookings] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const filteredMembers = mockMembers.filter(
-    (member) =>
-      member.Name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      member.Membership_No.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      member.Email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Fetch members on mount
+  useEffect(() => {
+    fetchMembers();
+  }, []);
 
-  const getMemberVouchers = (membershipNo: string) => {
-    return mockPaymentVouchers.filter(v => v.memberId === membershipNo);
+  // Fetch vouchers and bookings when member is selected
+  useEffect(() => {
+    if (selectedMember) {
+      fetchMemberVouchers(selectedMember.Membership_No);
+      fetchMemberBookings(selectedMember.Membership_No);
+    }
+  }, [selectedMember]);
+
+  const fetchMembers = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/member/get/members?page=1&limit=1000`);
+      const data = await response.json();
+      setMembers(data.data || []);
+    } catch (error) {
+      console.error("Failed to fetch members:", error);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const fetchMemberVouchers = async (membershipNo: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/payment/member/vouchers?membershipNo=${membershipNo}`);
+      const data = await response.json();
+      setMemberVouchers(data || []);
+    } catch (error) {
+      console.error("Failed to fetch vouchers:", error);
+      setMemberVouchers([]);
+    }
+  };
+
+  const fetchMemberBookings = async (membershipNo: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/booking/member/bookings?membershipNo=${membershipNo}`);
+      const data = await response.json();
+      setMemberBookings(data || []);
+    } catch (error) {
+      console.error("Failed to fetch bookings:", error);
+      setMemberBookings([]);
+    }
+  };
+
+  const filteredMembers = members.filter(
+    (member) =>
+      member.Name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      member.Membership_No?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      member.Email?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "PAID":
+      case "CONFIRMED":
         return <Badge className="bg-success text-success-foreground">Paid</Badge>;
       case "HALF_PAID":
+      case "PENDING":
         return <Badge className="bg-warning text-warning-foreground">Half Paid</Badge>;
       case "UNPAID":
         return <Badge variant="destructive">Unpaid</Badge>;
@@ -37,6 +88,14 @@ export default function Accounts() {
         return <Badge>{status}</Badge>;
     }
   };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString();
+  };
+
+  if (loading) {
+    return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -80,16 +139,18 @@ export default function Accounts() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Balance:</span>
                   <span className={member.Balance < 0 ? "text-destructive font-medium" : "font-medium"}>
-                    PKR {member.Balance.toLocaleString()}
+                    PKR {member.Balance?.toLocaleString() || 0}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Total Bookings:</span>
-                  <span className="font-medium">{member.totalBookings}</span>
+                  <span className="font-medium">{member.totalBookings || 0}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Last Booking:</span>
-                  <span className="font-medium">{member.lastBookingDate}</span>
+                  <span className="font-medium">
+                    {member.lastBookingDate ? formatDate(member.lastBookingDate) : 'N/A'}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Status:</span>
@@ -120,12 +181,12 @@ export default function Accounts() {
               <div>
                 <p className="text-sm text-muted-foreground">Current Balance</p>
                 <p className={`font-medium ${selectedMember?.Balance < 0 ? "text-destructive" : ""}`}>
-                  PKR {selectedMember?.Balance.toLocaleString()}
+                  PKR {selectedMember?.Balance?.toLocaleString() || 0}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Bookings</p>
-                <p className="font-medium">{selectedMember?.totalBookings}</p>
+                <p className="font-medium">{selectedMember?.totalBookings || 0}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Status</p>
@@ -140,12 +201,12 @@ export default function Accounts() {
                 <TabsTrigger value="vouchers">Payment Vouchers</TabsTrigger>
                 <TabsTrigger value="bookings">Booking History</TabsTrigger>
               </TabsList>
-              
+
               <TabsContent value="vouchers">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Voucher No</TableHead>
+                      <TableHead>Voucher ID</TableHead>
                       <TableHead>Date</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Amount</TableHead>
@@ -154,28 +215,36 @@ export default function Accounts() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {getMemberVouchers(selectedMember?.Membership_No).map((voucher) => (
-                      <TableRow key={voucher.id}>
-                        <TableCell className="font-medium">{voucher.voucherNo}</TableCell>
-                        <TableCell>{voucher.date}</TableCell>
-                        <TableCell>{voucher.type}</TableCell>
-                        <TableCell>PKR {voucher.amount.toLocaleString()}</TableCell>
-                        <TableCell>{getStatusBadge(voucher.status)}</TableCell>
-                        <TableCell className="text-right">
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            onClick={() => exportVoucherPDF(voucher)}
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
+                    {memberVouchers.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center text-muted-foreground">
+                          No vouchers found
                         </TableCell>
                       </TableRow>
-                    ))}
+                    ) : (
+                      memberVouchers.map((voucher) => (
+                        <TableRow key={voucher.id}>
+                          <TableCell className="font-medium">{voucher.id}</TableCell>
+                          <TableCell>{formatDate(voucher.issued_at || voucher.created_at)}</TableCell>
+                          <TableCell>{voucher.voucher_type || voucher.booking_type}</TableCell>
+                          <TableCell>PKR {voucher.amount?.toLocaleString() || 0}</TableCell>
+                          <TableCell>{getStatusBadge(voucher.status)}</TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => exportVoucherPDF(voucher)}
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
                   </TableBody>
                 </Table>
               </TabsContent>
-              
+
               <TabsContent value="bookings">
                 <Table>
                   <TableHeader>
@@ -188,19 +257,23 @@ export default function Accounts() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {mockMemberBookingHistory.map((booking) => (
-                      <TableRow key={booking.id}>
-                        <TableCell className="font-medium">{booking.type}</TableCell>
-                        <TableCell>{booking.name}</TableCell>
-                        <TableCell>{booking.date}</TableCell>
-                        <TableCell>PKR {booking.amount.toLocaleString()}</TableCell>
-                        <TableCell>
-                          <Badge variant={booking.status === "COMPLETED" ? "default" : "secondary"}>
-                            {booking.status}
-                          </Badge>
+                    {memberBookings.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-muted-foreground">
+                          No bookings found
                         </TableCell>
                       </TableRow>
-                    ))}
+                    ) : (
+                      memberBookings.map((booking) => (
+                        <TableRow key={booking.id}>
+                          <TableCell className="font-medium">{booking.type}</TableCell>
+                          <TableCell>{booking.name}</TableCell>
+                          <TableCell>{booking.date}</TableCell>
+                          <TableCell>PKR {booking.amount?.toLocaleString() || 0}</TableCell>
+                          <TableCell>{getStatusBadge(booking.status)}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
                   </TableBody>
                 </Table>
               </TabsContent>

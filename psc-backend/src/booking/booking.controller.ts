@@ -101,8 +101,7 @@ export class BookingController {
     if (bookingFor === 'rooms') return this.bookingService.gBookingsRoom();
     if (bookingFor === 'halls') return this.bookingService.gBookingsHall();
     if (bookingFor === 'lawns') return this.bookingService.gBookingsLawn();
-    if (bookingFor === 'photoshoots')
-      return this.bookingService.gBookingPhotoshoot();
+    if (bookingFor === 'photoshoots') return this.bookingService.gBookingPhotoshoot();
   }
 
   @UseGuards(JwtAccGuard, RolesGuard)
@@ -122,6 +121,12 @@ export class BookingController {
       return this.bookingService.dBookingPhotoshoot(Number(bookID.bookID));
   }
 
+
+
+  @Get('member/bookings')
+  async getMemberBookings(@Query('membershipNo') membershipNo: string) {
+    return await this.bookingService.getMemberBookings(membershipNo);
+  }
 
   ////////////////////////////////////////////////////////////////////////////
   // member bookings
@@ -180,7 +185,7 @@ export class BookingController {
     const {
       hallId,
       bookingDate,
-      eventTime, // Time slot: MORNING, EVENING, NIGHT
+      eventTime, 
       eventType,
       pricingType,
       specialRequest,
@@ -222,4 +227,99 @@ export class BookingController {
 
     return await this.bookingService.cBookingHallMember(data);
   }
+
+  @Post('member/booking/lawn')
+  async memberBookingLawn(@Body() payload: any) {
+    const { membership_no } = payload.consumerInfo;
+    const {
+      lawnId,
+      bookingDate,
+      eventTime, 
+      eventType,
+      pricingType,
+      specialRequest,
+      totalPrice,
+    } = payload.bookingData;
+
+    if (!membership_no) {
+      throw new NotFoundException('Membership number must be provided');
+    }
+
+    // Validate required fields
+    if (!lawnId) {
+      throw new BadRequestException('Lawn ID is required');
+    }
+    if (!bookingDate) {
+      throw new BadRequestException('Booking date is required');
+    }
+    if (!eventTime) {
+      throw new BadRequestException('Event time slot is required');
+    }
+    if (!eventType) {
+      throw new BadRequestException('Event type is required');
+    }
+
+    const data = {
+      membershipNo: membership_no,
+      entityId: lawnId,
+      bookingDate: bookingDate,
+      eventTime: eventTime, // MORNING, EVENING, or NIGHT
+      eventType: eventType,
+      pricingType: pricingType,
+      specialRequests: specialRequest || '',
+      totalPrice: totalPrice,
+      paymentStatus: 'PAID',
+      paidAmount: totalPrice,
+      pendingAmount: 0,
+      paymentMode: 'ONLINE',
+    };
+
+    return await this.bookingService.cBookingLawnMember(data);
+  }
+
+  @Post('member/booking/photoshoot')
+  async memberBookingPhotoshoot(@Body() payload: any) {
+    const { membership_no } = payload.consumerInfo;
+    const {
+      photoshootId,
+      bookingDate,
+      startTime, 
+      pricingType,
+      specialRequest,
+      totalPrice,
+    } = payload.bookingData;
+
+    if (!membership_no) {
+      throw new NotFoundException('Membership number must be provided');
+    }
+
+    // Validate required fields
+    if (!photoshootId) {
+      throw new BadRequestException('Photoshoot ID is required');
+    }
+    if (!bookingDate) {
+      throw new BadRequestException('Booking date is required');
+    }
+    if (!startTime) {
+      throw new BadRequestException('Event start time slot is required');
+    }
+
+    const data = {
+      membershipNo: membership_no,
+      entityId: photoshootId,
+      bookingDate: bookingDate,
+      startTime,
+      pricingType: pricingType,
+      specialRequests: specialRequest || '',
+      totalPrice: totalPrice,
+      paymentStatus: 'PAID',
+      paidAmount: totalPrice,
+      pendingAmount: 0,
+      paymentMode: 'ONLINE',
+    };
+
+    return await this.bookingService.cBookingPhotoshootMember(data);
+  }
+
+
 }
