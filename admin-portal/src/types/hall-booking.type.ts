@@ -22,7 +22,8 @@ export interface HallBooking {
   numberOfGuests: number;
   paidBy?: "MEMBER" | "GUEST";
   guestName?: "",
-  guestContact?: ""
+  guestContact?: "",
+  
   member?: {
     id: string;
     Name: string;
@@ -37,6 +38,7 @@ export interface HallBooking {
     capacity: number;
     chargesMembers: number;
     chargesGuests: number;
+    outOfOrders?: any[],
   };
   // Add these for backward compatibility
   Membership_No?: string;

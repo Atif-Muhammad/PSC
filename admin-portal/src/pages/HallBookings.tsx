@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Edit, XCircle, Loader2, Receipt, User } from "lucide-react";
+import { Plus, Edit, XCircle, Loader2, Receipt, User, NotepadText } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -59,6 +59,8 @@ import { MemberSearchComponent } from "@/components/MemberSearch";
 import { FormInput } from "@/components/FormInputs";
 import { UnifiedDatePicker } from "@/components/UnifiedDatePicker";
 import { format } from "date-fns";
+import { HallBookingDetailsCard } from "@/components/details/HallBookingDets";
+
 
 // Payment section built for hall bookings
 const HallPaymentSection = React.memo(
@@ -196,6 +198,10 @@ export default function HallBookings() {
   const [showMemberResults, setShowMemberResults] = useState(false);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
 
+  const [detailBooking, setDetailBooking] = useState<HallBooking | null>(null);
+  const [openDetails, setOpenDetails] = useState(false)
+
+
   const searchTimeoutRef = useRef<NodeJS.Timeout>();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -210,7 +216,7 @@ export default function HallBookings() {
     queryKey: ["halls"],
     queryFn: async () => (await getHalls()) as Hall[],
   });
-  // console.log(halls)
+
 
   // Member search query with throttling for create dialog
   const {
@@ -933,6 +939,15 @@ export default function HallBookings() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
+                        <Button variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setDetailBooking(booking)
+                            setOpenDetails(true)
+                          }}
+                          title="Booking Details">
+                          <NotepadText />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -1241,6 +1256,18 @@ export default function HallBookings() {
               )}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* booking details */}
+      <Dialog open={openDetails} onOpenChange={setOpenDetails}>
+        <DialogContent className="p-0 max-w-5xl min-w-4xl overflow-hidden">
+          {detailBooking && (
+            <HallBookingDetailsCard
+              booking={detailBooking}
+              className="rounded-none border-0 shadow-none"
+            />
+          )}
         </DialogContent>
       </Dialog>
 

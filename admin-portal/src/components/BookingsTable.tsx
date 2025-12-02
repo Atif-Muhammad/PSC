@@ -3,13 +3,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Edit, Receipt, XCircle, Loader2 } from "lucide-react";
+import { Edit, Receipt, XCircle, Loader2, NotepadText } from "lucide-react";
 import { Booking } from "@/types/room-booking.type";
 
 interface BookingsTableProps {
   bookings: Booking[];
   isLoading: boolean;
   onEdit: (booking: Booking) => void;
+  onDetail: (booking: Booking) => void;
   onViewVouchers: (booking: Booking) => void;
   onCancel: (booking: Booking) => void;
   getPaymentBadge: (status: string) => React.ReactNode;
@@ -19,6 +20,7 @@ export const BookingsTable = React.memo(({
   bookings,
   isLoading,
   onEdit,
+  onDetail,
   onViewVouchers,
   onCancel,
   getPaymentBadge,
@@ -83,6 +85,12 @@ export const BookingsTable = React.memo(({
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
+                    <Button variant="ghost"
+                      size="icon"
+                      onClick={() => onDetail(booking)}
+                      title="Booking Details">
+                        <NotepadText/>
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"

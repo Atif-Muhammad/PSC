@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -39,7 +45,13 @@ import { VouchersDialog } from "@/components/VouchersDialog";
 import { CancelBookingDialog } from "@/components/CancelBookingDialog";
 
 // Import types and utilities
-import { Booking, BookingForm, Room, Member, RoomType } from "@/types/room-booking.type";
+import {
+  Booking,
+  BookingForm,
+  Room,
+  Member,
+  RoomType,
+} from "@/types/room-booking.type";
 import {
   initialFormState,
   calculatePrice,
@@ -47,6 +59,7 @@ import {
   getDateStatuses,
 } from "@/utils/bookingUtils";
 import { format } from "date-fns";
+import { BookingDetailsCard } from "@/components/details/RoomBookingDets";
 
 export default function RoomBookings() {
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -58,6 +71,8 @@ export default function RoomBookings() {
   const [editForm, setEditForm] = useState<BookingForm>(initialFormState);
   const [availableRooms, setAvailableRooms] = useState<Room[]>([]);
   const [editAvailableRooms, setEditAvailableRooms] = useState<Room[]>([]);
+  const [detailBooking, setDetailBooking] = useState<Booking | null>(null);
+  const [openDetails, setOpenDetails] = useState(false)
 
   // Member search states for create dialog
   const [memberSearch, setMemberSearch] = useState("");
@@ -69,12 +84,16 @@ export default function RoomBookings() {
   const queryClient = useQueryClient();
 
   // API Queries
-  const { data: bookings = [], isLoading: isLoadingBookings } = useQuery<Booking[]>({
+  const { data: bookings = [], isLoading: isLoadingBookings } = useQuery<
+    Booking[]
+  >({
     queryKey: ["bookings", "rooms"],
     queryFn: async () => (await getBookings("rooms")) as Booking[],
   });
 
-  const { data: roomTypes = [], isLoading: isLoadingRoomTypes } = useQuery<RoomType[]>({
+  const { data: roomTypes = [], isLoading: isLoadingRoomTypes } = useQuery<
+    RoomType[]
+  >({
     queryKey: ["roomTypes"],
     queryFn: async () => (await getRoomTypes()) as RoomType[],
   });
@@ -86,14 +105,13 @@ export default function RoomBookings() {
 
   // Vouchers query - only enabled when viewing vouchers
 
-  const {
-    data: vouchers = [],
-    isLoading: isLoadingVouchers,
-  } = useQuery<any[]>({
-    queryKey: ["vouchers", viewVouchers?.id],
-    queryFn: () => (viewVouchers ? getVouchers("ROOM", viewVouchers.id) : []),
-    enabled: !!viewVouchers,
-  });
+  const { data: vouchers = [], isLoading: isLoadingVouchers } = useQuery<any[]>(
+    {
+      queryKey: ["vouchers", viewVouchers?.id],
+      queryFn: () => (viewVouchers ? getVouchers("ROOM", viewVouchers.id) : []),
+      enabled: !!viewVouchers,
+    }
+  );
 
   // Member search query with throttling for create dialog
   const {
@@ -115,9 +133,7 @@ export default function RoomBookings() {
 
   const editDateStatuses = useMemo(
     () =>
-      editBooking
-        ? getDateStatuses(editForm.roomId, bookings, allRooms)
-        : [],
+      editBooking ? getDateStatuses(editForm.roomId, bookings, allRooms) : [],
     [editBooking, editForm.roomId, bookings, allRooms]
   );
 
@@ -217,7 +233,11 @@ export default function RoomBookings() {
     },
   });
 
-  const deleteMutation = useMutation<any, Error, { bookingFor: string; bookID: string }>({
+  const deleteMutation = useMutation<
+    any,
+    Error,
+    { bookingFor: string; bookID: string }
+  >({
     mutationFn: ({ bookingFor, bookID }) => deleteBooking(bookingFor, bookID),
     onSuccess: () => {
       toast({ title: "Booking cancelled successfully" });
@@ -239,7 +259,7 @@ export default function RoomBookings() {
       if (form.roomTypeId) {
         try {
           const response = await getAvailRooms(form.roomTypeId);
-          console.log(response)
+          console.log(response);
           const rooms = (response?.data ?? response ?? []) as Room[];
           setAvailableRooms(rooms);
         } catch (error) {
@@ -260,13 +280,14 @@ export default function RoomBookings() {
   // Update edit form when editBooking changes
   useEffect(() => {
     if (editBooking) {
-      const roomTypeId = editBooking.roomTypeId || editBooking.room?.roomType?.id;
+      const roomTypeId =
+        editBooking.roomTypeId || editBooking.room?.roomType?.id;
       const roomId = editBooking.roomId;
 
       // Helper function to convert backend date to datetime-local format
       const convertToDateTimeLocal = (dateString: string): string => {
         if (!dateString) return "";
-        const date = new Date(dateString.replace(' ', 'T'));
+        const date = new Date(dateString.replace(" ", "T"));
         return format(date, "yyyy-MM-dd'T'HH:mm");
       };
 
@@ -281,8 +302,12 @@ export default function RoomBookings() {
         paidBy: editBooking.paidBy || "MEMBER",
         guestName: editBooking.guestName,
         guestContact: editBooking.guestContact,
-        checkIn: editBooking.checkIn ? convertToDateTimeLocal(editBooking.checkIn) : "",
-        checkOut: editBooking.checkOut ? convertToDateTimeLocal(editBooking.checkOut) : "",
+        checkIn: editBooking.checkIn
+          ? convertToDateTimeLocal(editBooking.checkIn)
+          : "",
+        checkOut: editBooking.checkOut
+          ? convertToDateTimeLocal(editBooking.checkOut)
+          : "",
         totalPrice: editBooking.totalPrice || 0,
         paymentStatus: editBooking.paymentStatus || "UNPAID",
         paidAmount: editBooking.paidAmount || 0,
@@ -290,8 +315,7 @@ export default function RoomBookings() {
         paymentMode: "CASH",
         numberOfAdults: editBooking.numberOfAdults || 1,
         numberOfChildren: editBooking.numberOfChildren || 0,
-        specialRequests: editBooking.specialRequest || "",
-
+        specialRequests: editBooking.specialRequests || "",
       };
 
       setEditForm(newEditForm);
@@ -300,22 +324,30 @@ export default function RoomBookings() {
       if (roomTypeId) {
         getAvailRooms(roomTypeId.toString())
           .then((response) => {
-            const availableRoomsData = (response?.data ?? response ?? []) as Room[];
+            const availableRoomsData = (response?.data ??
+              response ??
+              []) as Room[];
             setEditAvailableRooms(availableRoomsData);
 
             // If the current room is not in available rooms, add it to the list
-            if (roomId && !availableRoomsData.some((room: Room) => room.id === roomId)) {
+            if (
+              roomId &&
+              !availableRoomsData.some((room: Room) => room.id === roomId)
+            ) {
               const currentRoom: Room = {
                 id: roomId,
-                roomNumber: editBooking.roomNumber || editBooking.room?.roomNumber || `Room ${roomId}`,
-                roomType: editBooking.roomType || editBooking.room?.roomType?.type || "Unknown",
+                roomNumber:
+                  editBooking.roomNumber ||
+                  editBooking.room?.roomNumber ||
+                  `Room ${roomId}`,
+                roomType:
+                  editBooking.roomType ||
+                  editBooking.room?.roomType?.type ||
+                  "Unknown",
                 roomTypeId: roomTypeId,
                 isActive: true,
-                isOutOfOrder: false,
-                outOfOrderFrom: null,
-                outOfOrderTo: null,
                 reservations: [],
-                bookings: []
+                bookings: [],
               };
               setEditAvailableRooms([currentRoom, ...availableRoomsData]);
             }
@@ -326,15 +358,18 @@ export default function RoomBookings() {
             if (roomId && roomTypeId) {
               const fallbackRoom: Room = {
                 id: roomId,
-                roomNumber: editBooking.roomNumber || editBooking.room?.roomNumber || `Room ${roomId}`,
-                roomType: editBooking.roomType || editBooking.room?.roomType?.type || "Unknown",
+                roomNumber:
+                  editBooking.roomNumber ||
+                  editBooking.room?.roomNumber ||
+                  `Room ${roomId}`,
+                roomType:
+                  editBooking.roomType ||
+                  editBooking.room?.roomType?.type ||
+                  "Unknown",
                 roomTypeId: roomTypeId,
                 isActive: true,
-                isOutOfOrder: false,
-                outOfOrderFrom: null,
-                outOfOrderTo: null,
                 reservations: [],
-                bookings: []
+                bookings: [],
               };
               setEditAvailableRooms([fallbackRoom]);
             } else {
@@ -352,7 +387,13 @@ export default function RoomBookings() {
     checkIn: string,
     checkOut: string
   ) => {
-    return calculatePrice(roomTypeId, pricingType, checkIn, checkOut, roomTypes);
+    return calculatePrice(
+      roomTypeId,
+      pricingType,
+      checkIn,
+      checkOut,
+      roomTypes
+    );
   };
 
   // Unified form change handler
@@ -365,7 +406,9 @@ export default function RoomBookings() {
         const newForm = { ...prev, [field]: value };
 
         // Recalculate price when relevant fields change
-        if (["roomTypeId", "pricingType", "checkIn", "checkOut"].includes(field)) {
+        if (
+          ["roomTypeId", "pricingType", "checkIn", "checkOut"].includes(field)
+        ) {
           const newPrice = calculatePriceForForm(
             field === "roomTypeId" ? value : newForm.roomTypeId,
             field === "pricingType" ? value : newForm.pricingType,
@@ -409,7 +452,14 @@ export default function RoomBookings() {
   const handleEditFormChange = createFormChangeHandler(true);
 
   const handleCreate = () => {
-    if (!form.membershipNo || !form.roomTypeId || !form.roomId || !form.checkIn || !form.checkOut || !form.numberOfAdults) {
+    if (
+      !form.membershipNo ||
+      !form.roomTypeId ||
+      !form.roomId ||
+      !form.checkIn ||
+      !form.checkOut ||
+      !form.numberOfAdults
+    ) {
       toast({
         title: "Please fill all required fields",
         variant: "destructive",
@@ -481,7 +531,8 @@ export default function RoomBookings() {
       if (form.paidAmount >= form.totalPrice) {
         toast({
           title: "Invalid paid amount",
-          description: "Paid amount must be less than total price for half-paid status",
+          description:
+            "Paid amount must be less than total price for half-paid status",
           variant: "destructive",
         });
         return;
@@ -506,15 +557,20 @@ export default function RoomBookings() {
       specialRequests: form.specialRequests,
       paidBy: form.paidBy,
       guestName: form.guestName,
-      guestContact: form.guestContact
+      guestContact: form.guestContact,
     };
-
 
     createMutation.mutate(payload);
   };
 
   const handleUpdate = () => {
-    if (!editForm.membershipNo || !editForm.roomTypeId || !editForm.roomId || !editForm.checkIn || !editForm.checkOut) {
+    if (
+      !editForm.membershipNo ||
+      !editForm.roomTypeId ||
+      !editForm.roomId ||
+      !editForm.checkIn ||
+      !editForm.checkOut
+    ) {
       toast({
         title: "Please fill all required fields",
         variant: "destructive",
@@ -535,7 +591,8 @@ export default function RoomBookings() {
       if (editForm.paidAmount >= editForm.totalPrice) {
         toast({
           title: "Invalid paid amount",
-          description: "Paid amount must be less than total price for half-paid status",
+          description:
+            "Paid amount must be less than total price for half-paid status",
           variant: "destructive",
         });
         return;
@@ -562,7 +619,7 @@ export default function RoomBookings() {
       guestName: editBooking.guestName,
     };
 
-    console.log(payload)
+    console.log(payload);
 
     updateMutation.mutate(payload);
   };
@@ -580,9 +637,10 @@ export default function RoomBookings() {
     setViewVouchers(booking);
   };
 
-  const filteredBookings = paymentFilter === "ALL"
-    ? bookings
-    : bookings?.filter((b: any) => b.paymentStatus === paymentFilter);
+  const filteredBookings =
+    paymentFilter === "ALL"
+      ? bookings
+      : bookings?.filter((b: any) => b.paymentStatus === paymentFilter);
 
   const getPaymentBadge = (status: string) => {
     switch (status) {
@@ -702,6 +760,10 @@ export default function RoomBookings() {
         bookings={filteredBookings}
         isLoading={isLoadingBookings}
         onEdit={setEditBooking}
+        onDetail={(booking: Booking) => {
+          setOpenDetails(true)
+          setDetailBooking(booking)
+        }}
         onViewVouchers={handleViewVouchers}
         onCancel={setCancelBooking}
         getPaymentBadge={getPaymentBadge}
@@ -720,6 +782,17 @@ export default function RoomBookings() {
         onClose={resetEditForm}
         isUpdating={updateMutation.isPending}
       />
+
+      <Dialog open={openDetails} onOpenChange={setOpenDetails}>
+        <DialogContent className="p-0 max-w-5xl min-w-4xl overflow-hidden">
+          {detailBooking && (
+            <BookingDetailsCard
+              booking={detailBooking}
+              className="rounded-none border-0 shadow-none"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Vouchers Dialog */}
       <VouchersDialog

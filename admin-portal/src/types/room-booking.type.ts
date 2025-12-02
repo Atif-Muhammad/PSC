@@ -28,6 +28,9 @@ export interface Room {
   isReserved?: boolean;
   reservedFrom?: string;
   reservedTo?: string;
+  outOfOrders?: any[]
+  reservations? : [];
+  bookings? : []
   status?: "AVAILABLE" | "OUT_OF_ORDER" | "RESERVED";
 }
 
@@ -53,14 +56,18 @@ export interface Booking {
   room?: {
     id: number;
     roomNumber: string;
+    outOfOrders?: any[];
+    createdAt?: string;
+    specialRequests?: string
     roomType: {
       type: string;
       id: number;
     };
   };
+  createdAt?: string
   numberOfAdults: number;
   numberOfChildren: number;
-  specialRequest?: string;
+  specialRequests?: string;
 }
 
 export interface BookingForm {
