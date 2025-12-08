@@ -276,20 +276,25 @@ export class HallService {
     reserveFrom?: string,
     reserveTo?: string,
   ) {
-    // Check if any hall is currently booked
-    const bookedHall = await this.prismaService.hall.findFirst({
+    // Check if any hall is currently on hold
+    const heldHalls = await this.prismaService.hallHoldings.findMany({
       where: {
-        id: { in: hallIds },
+        hallId: { in: hallIds },
         onHold: true,
+        holdExpiry: { gt: new Date() }, // Only check active holds
+      },
+      include: {
+        hall: { select: { name: true } },
       },
     });
 
-    // if (bookedHall) {
-    //   throw new HttpException(
-    //     `Hall "${bookedHall.name}" is currently on hold`,
-    //     HttpStatus.CONFLICT,
-    //   );
-    // }
+    if (heldHalls.length > 0) {
+      const hallNames = heldHalls.map((h) => `"${h.hall.name}"`).join(', ');
+      throw new HttpException(
+        `Hall(s) ${hallNames} is/are currently on hold`,
+        HttpStatus.CONFLICT,
+      );
+    }
 
     // Validate dates and time slot if reserving
     if (reserve) {
@@ -370,16 +375,17 @@ export class HallService {
           },
         });
 
-        // Check for out-of-order period conflicts
+        // MODIFIED: Check for out-of-order period conflicts
         const outOfOrderHalls = await prisma.hall.findMany({
           where: {
             id: { in: hallIds },
             outOfOrders: {
               some: {
                 // Check if any out-of-order period overlaps with reservation period
+                // MODIFIED: Allow checkout date to equal out-of-order start date
                 AND: [
-                  { startDate: { lte: reservedTo } },
-                  { endDate: { gte: reservedFrom } },
+                  { startDate: { lt: reservedTo } }, // out-of-order starts before reservation ends (allow equal)
+                  { endDate: { gt: reservedFrom } }, // out-of-order ends after reservation starts
                 ],
               },
             },
@@ -387,9 +393,10 @@ export class HallService {
           include: {
             outOfOrders: {
               where: {
+                // MODIFIED: Same logic here
                 AND: [
-                  { startDate: { lte: reservedTo } },
-                  { endDate: { gte: reservedFrom } },
+                  { startDate: { lt: reservedTo } }, // starts before reservation ends
+                  { endDate: { gt: reservedFrom } }, // ends after reservation starts
                 ],
               },
             },
@@ -397,38 +404,46 @@ export class HallService {
         });
 
         if (outOfOrderHalls.length > 0) {
-          const conflicts = outOfOrderHalls.map((hall: any) => {
-            const conflictingPeriods = hall.outOfOrders
-              .filter((period: any) => {
-                const periodStart = new Date(period.startDate);
-                const periodEnd = new Date(period.endDate);
-                return periodStart <= reservedTo && periodEnd >= reservedFrom;
-              })
-              .map((period) => {
-                const startDate = new Date(period.startDate);
-                const endDate = new Date(period.endDate);
-                return `${startDate.toLocaleDateString()} to ${endDate.toLocaleDateString()}: ${period.reason}`;
-              });
+          const conflicts = outOfOrderHalls
+            .map((hall: any) => {
+              const conflictingPeriods = hall.outOfOrders
+                .filter((period: any) => {
+                  const periodStart = new Date(period.startDate);
+                  const periodEnd = new Date(period.endDate);
+                  // MODIFIED: Check for actual overlap (not just touching)
+                  return periodStart < reservedTo && periodEnd > reservedFrom;
+                })
+                .map((period) => {
+                  const startDate = new Date(period.startDate);
+                  const endDate = new Date(period.endDate);
+                  return `${startDate.toLocaleDateString()} to ${endDate.toLocaleDateString()}: ${period.reason}`;
+                });
 
-            return `Hall "${hall.name}" has out-of-order periods: ${conflictingPeriods.join('; ')}`;
-          });
+              return `Hall "${hall.name}" has out-of-order periods: ${conflictingPeriods.join('; ')}`;
+            })
+            .filter(
+              (conflict) => !conflict.includes('has out-of-order periods: '),
+            ); // Remove empty conflict messages
 
-          throw new HttpException(
-            `Out-of-order conflicts: ${conflicts.join(', ')}`,
-            HttpStatus.CONFLICT,
-          );
+          if (conflicts.length > 0) {
+            throw new HttpException(
+              `Out-of-order conflicts: ${conflicts.join(', ')}`,
+              HttpStatus.CONFLICT,
+            );
+          }
         }
 
-        // Check for booking conflicts (excluding the ones we just deleted)
+        // MODIFIED: Check for booking conflicts
         const conflictingBookings = await prisma.hallBooking.findMany({
           where: {
             hallId: { in: hallIds },
             OR: [
               {
                 // Booking overlaps with reservation period AND matches time slot
+                // MODIFIED: Allow checkout date to equal booking date
                 bookingDate: {
                   gte: reservedFrom,
-                  lt: reservedTo,
+                  lt: reservedTo, // Changed from lte to lt to allow equal
                 },
                 bookingTime: timeSlot as any, // Strict time slot check
               },
@@ -448,13 +463,14 @@ export class HallService {
           );
         }
 
-        // Check for other reservation conflicts (excluding the ones we just deleted)
+        // MODIFIED: Check for other reservation conflicts
         const conflictingReservations = await prisma.hallReservation.findMany({
           where: {
             hallId: { in: hallIds },
             OR: [
               {
                 // Reservation overlaps with new reservation period
+                // MODIFIED: Allow checkout date to equal start of another reservation
                 reservedFrom: { lt: reservedTo }, // existing reservation starts before new reservation ends
                 reservedTo: { gt: reservedFrom }, // existing reservation ends after new reservation starts
                 timeSlot: timeSlot, // Same time slot conflict
@@ -496,9 +512,10 @@ export class HallService {
               await prisma.hallOutOfOrder.findFirst({
                 where: {
                   hallId: hall.id,
+                  // MODIFIED: Use same logic for inactive hall check
                   AND: [
-                    { startDate: { lte: reservedTo } },
-                    { endDate: { gte: reservedFrom } },
+                    { startDate: { lt: reservedTo } },
+                    { endDate: { gt: reservedFrom } },
                   ],
                 },
               });

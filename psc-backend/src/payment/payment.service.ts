@@ -28,46 +28,51 @@ export class PaymentService {
     // return response.data;
 
     // the kuickpay api will call member booking api once payment is done
-    paymentData.type === "room" && await fetch('http://localhost:3000/booking/member/booking/room', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(paymentData),
-    });
-    const bookHall = async(paymentData)=>{
-      const done= await fetch('http://localhost:3000/booking/member/booking/hall', {
+    paymentData.type === 'room' &&
+      (await fetch('http://localhost:3000/booking/member/booking/room', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(paymentData),
-      });
-      console.log(done)
-    }
-    paymentData.type === "hall" && bookHall(paymentData)
-    paymentData.type === "lawn" && await fetch('http://localhost:3000/booking/member/booking/lawn', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(paymentData),
-    });
+      }));
+    const bookHall = async (paymentData) => {
+      const done = await fetch(
+        'http://localhost:3000/booking/member/booking/hall',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(paymentData),
+        },
+      );
+      console.log(done);
+    };
+    paymentData.type === 'hall' && bookHall(paymentData);
+    paymentData.type === 'lawn' &&
+      (await fetch('http://localhost:3000/booking/member/booking/lawn', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(paymentData),
+      }));
 
-    const bookPhoto = async (paymentData)=>{
-    const done = await fetch('http://localhost:3000/booking/member/booking/photoshoot', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(paymentData),
-    });
-    // console.log(done)
-    }
-    paymentData.type === "photoshoot" && bookPhoto(paymentData);
-
-
-
+    const bookPhoto = async (paymentData) => {
+      const done = await fetch(
+        'http://localhost:3000/booking/member/booking/photoshoot',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(paymentData),
+        },
+      );
+      // console.log(done)
+    };
+    paymentData.type === 'photoshoot' && bookPhoto(paymentData);
 
     // Mock successful response
     return {
@@ -85,7 +90,7 @@ export class PaymentService {
       where: { id: roomType },
     });
     if (!typeExists) throw new NotFoundException(`Room type not found`);
-    console.log(bookingData)
+    // console.log(bookingData)
     // Parse dates
     const checkIn = parsePakistanDate(bookingData.from);
     const checkOut = parsePakistanDate(bookingData.to);
@@ -123,11 +128,12 @@ export class PaymentService {
       where: {
         roomTypeId: roomType,
         isActive: true,
-        // Not on active hold
-        OR: [
-          { onHold: false },
-          { onHold: true, holdExpiry: { lt: new Date() } },
-        ],
+        holdings: {
+          none: {
+            onHold: true,
+            holdExpiry: { gt: new Date() },
+          },
+        },
         // No reservations during requested period
         reservations: {
           none: {
@@ -182,10 +188,11 @@ export class PaymentService {
     // Put rooms on hold
     try {
       const membershipNoString = String(bookingData.membership_no);
+
       const holdPromises = selectedRooms.map((room) =>
-        this.prismaService.room.update({
-          where: { id: room.id },
+        this.prismaService.roomHoldings.create({
           data: {
+            roomId: room.id,
             onHold: true,
             holdExpiry: holdExpiry,
             holdBy: membershipNoString,
@@ -219,7 +226,7 @@ export class PaymentService {
     // Call payment gateway
     try {
       const invoiceResponse = await this.callPaymentGateway({
-        type: "room",
+        type: 'room',
         amount: totalPrice,
         consumerInfo: {
           membership_no: String(bookingData.membership_no),
@@ -275,9 +282,11 @@ export class PaymentService {
     } catch (paymentError) {
       // Clean up room holds if payment gateway fails
       try {
-        await this.prismaService.room.updateMany({
-          where: { id: { in: selectedRooms.map((room) => room.id) } },
-          data: { onHold: false, holdExpiry: null, holdBy: null },
+        await this.prismaService.roomHoldings.deleteMany({
+          where: {
+            roomId: { in: selectedRooms.map((room) => room.id) },
+            holdExpiry: holdExpiry, // Match the exact hold we just created
+          },
         });
       } catch (cleanupError) {
         console.error('Failed to clean up room holds:', cleanupError);
@@ -297,6 +306,14 @@ export class PaymentService {
       where: { id: hallId },
       include: {
         outOfOrders: true, // Include out-of-order periods
+        holdings: {
+          where: {
+            onHold: true,
+            holdExpiry: { gt: new Date() },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
       },
     });
 
@@ -340,13 +357,10 @@ export class PaymentService {
     }
 
     // ── 5. CHECK IF HALL IS ON HOLD ─────────────────────────
-    if (
-      hallExists.onHold &&
-      hallExists.holdExpiry &&
-      hallExists.holdExpiry > new Date()
-    ) {
+    if (hallExists.holdings && hallExists.holdings.length > 0) {
+      const activeHold = hallExists.holdings[0];
       // Check if the hold is by a different user
-      if (hallExists.holdBy !== bookingData.membership_no?.toString()) {
+      if (activeHold.holdBy !== bookingData.membership_no?.toString()) {
         throw new ConflictException(
           `Hall '${hallExists.name}' is currently on hold by another user`,
         );
@@ -441,9 +455,9 @@ export class PaymentService {
 
     // ── 11. PUT HALL ON HOLD ────────────────────────────────
     try {
-      await this.prismaService.hall.update({
-        where: { id: hallExists.id },
+      await this.prismaService.hallHoldings.create({
         data: {
+          hallId: hallExists.id,
           onHold: true,
           holdExpiry: holdExpiry,
           holdBy: String(bookingData.membership_no),
@@ -481,7 +495,7 @@ export class PaymentService {
       };
 
       const invoiceResponse = await this.callPaymentGateway({
-        type: "hall",
+        type: 'hall',
         amount: totalPrice,
         consumerInfo: {
           membership_no: bookingData.membership_no,
@@ -539,12 +553,10 @@ export class PaymentService {
       console.error('Payment gateway error:', paymentError);
 
       try {
-        await this.prismaService.hall.update({
-          where: { id: hallExists.id },
-          data: {
-            onHold: false,
-            holdExpiry: null,
-            holdBy: null,
+        await this.prismaService.hallHoldings.deleteMany({
+          where: {
+            hallId: hallExists.id,
+            holdExpiry: holdExpiry,
           },
         });
 
@@ -569,6 +581,14 @@ export class PaymentService {
         lawnCategory: true,
         outOfOrders: {
           orderBy: { startDate: 'asc' },
+        },
+        holdings: {
+          where: {
+            onHold: true,
+            holdExpiry: { gt: new Date() },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
         },
       },
     });
@@ -620,13 +640,10 @@ export class PaymentService {
     }
 
     // ── 6. CHECK IF LAWN IS ON HOLD ─────────────────────────
-    if (
-      lawnExists.onHold &&
-      lawnExists.holdExpiry &&
-      lawnExists.holdExpiry > new Date()
-    ) {
+    if (lawnExists.holdings && lawnExists.holdings.length > 0) {
+      const activeHold = lawnExists.holdings[0];
       // Check if the hold is by a different user
-      if (lawnExists.holdBy !== bookingData.membership_no?.toString()) {
+      if (activeHold.holdBy !== bookingData.membership_no?.toString()) {
         throw new ConflictException(
           `Lawn '${lawnExists.description}' is currently on hold by another user`,
         );
@@ -727,9 +744,10 @@ export class PaymentService {
 
     // ── 13. PUT LAWN ON HOLD ────────────────────────────────
     try {
-      await this.prismaService.lawn.update({
+      await this.prismaService.lawnHoldings.update({
         where: { id: lawnExists.id },
-        data: {
+         data: {
+          lawnId: lawnExists.id,
           onHold: true,
           holdExpiry: holdExpiry,
           holdBy: String(bookingData.membership_no),
@@ -768,7 +786,7 @@ export class PaymentService {
       };
 
       const invoiceResponse = await this.callPaymentGateway({
-        type: "lawn",
+        type: 'lawn',
         amount: totalPrice,
         consumerInfo: {
           membership_no: bookingData.membership_no,
@@ -833,15 +851,12 @@ export class PaymentService {
       console.error('Payment gateway error:', paymentError);
 
       try {
-        await this.prismaService.lawn.update({
-          where: { id: lawnExists.id },
-          data: {
-            onHold: false,
-            holdExpiry: null,
-            holdBy: null,
+        await this.prismaService.lawnHoldings.deleteMany({
+          where: {
+            lawnId: lawnExists.id,
+            holdExpiry: holdExpiry,
           },
         });
-
         console.log('Cleaned up lawn hold after payment failure');
       } catch (cleanupError) {
         console.error('Failed to clean up lawn hold:', cleanupError);
@@ -969,7 +984,7 @@ export class PaymentService {
       const invoiceDueDate = new Date(Date.now() + 3 * 60 * 1000);
 
       const invoiceResponse = await this.callPaymentGateway({
-        type: "photoshoot",
+        type: 'photoshoot',
         amount: totalPrice,
         consumerInfo: {
           membership_no: bookingData.membership_no,

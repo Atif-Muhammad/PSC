@@ -99,7 +99,7 @@ const isCurrentlyOutOfOrder = (outOfOrders: LawnOutOfOrder[]) => {
   return outOfOrders.some(period => {
     const start = new Date(period.startDate);
     const end = new Date(period.endDate);
-    return start <= now && end >= now;
+    return start <= now && end > now;
   });
 };
 

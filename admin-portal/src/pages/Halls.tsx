@@ -292,7 +292,7 @@ export default function Halls() {
       });
       return;
     }
-
+   
     setForm(prev => ({
       ...prev,
       outOfOrders: [...prev.outOfOrders, { ...newOutOfOrder }]
@@ -596,6 +596,8 @@ export default function Halls() {
       return false;
     }
 
+    console.log(formData)
+
     // Validate out of order periods
     for (const period of formData.outOfOrders) {
       if (!period.reason.trim()) {
@@ -605,6 +607,17 @@ export default function Halls() {
           variant: "destructive"
         });
         return false;
+      }
+      console.log(period)
+      const alreadyExists = period.startDate === newOutOfOrder.startDate && period.endDate === newOutOfOrder.endDate
+
+      if (alreadyExists) {
+        toast({
+          title: "Date Error",
+          description: "Cannot Selecting existing dates",
+          variant: "destructive",
+        });
+        return;
       }
 
       if (new Date(period.startDate) > new Date(period.endDate)) {
@@ -855,7 +868,7 @@ export default function Halls() {
     return hall.outOfOrders?.some(period => {
       const periodStart = new Date(period.startDate);
       const periodEnd = new Date(period.endDate);
-      return selectedFrom <= periodEnd && selectedTo >= periodStart;
+      return selectedFrom <= periodEnd && selectedTo > periodStart;
     });
   };
 

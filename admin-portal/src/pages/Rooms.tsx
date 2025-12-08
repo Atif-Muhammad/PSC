@@ -279,6 +279,7 @@ export default function Rooms() {
       return;
     }
 
+
     const startDate = new Date(newOutOfOrder.startDate);
     const endDate = new Date(newOutOfOrder.endDate);
 
@@ -286,6 +287,17 @@ export default function Rooms() {
       toast({
         title: "Invalid date range",
         description: "End date must be after start date",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const alreadyExists = form.outOfOrders?.some(o=> o.startDate === newOutOfOrder.startDate) || form.outOfOrders?.some(o=> o.endDate === newOutOfOrder.endDate)
+    
+    if(alreadyExists) {
+      toast({
+        title: "Date Error",
+        description: "Cannot Selecting existing dates",
         variant: "destructive",
       });
       return;
@@ -347,7 +359,7 @@ export default function Rooms() {
       const ooEnd = new Date(oo.endDate);
       // console.log(oo)
       // Check for overlap
-      return selectedFrom <= ooEnd && selectedTo >= ooStart;
+      return selectedFrom <= ooEnd && selectedTo > ooStart;
     });
   };
 
@@ -571,7 +583,7 @@ export default function Rooms() {
   // Get room status for display
   const getRoomStatus = (room: Room) => {
     const now = new Date();
-    
+
     // Check if room is currently out of order
     if (isRoomCurrentlyOutOfOrder(room)) {
       return "Out of Order";
@@ -610,7 +622,7 @@ export default function Rooms() {
   // Get room status badge variant
   const getRoomStatusVariant = (room: Room) => {
     const now = new Date();
-    
+
     if (isRoomCurrentlyOutOfOrder(room)) {
       return "destructive";
     }
@@ -1500,14 +1512,14 @@ export default function Rooms() {
                           <div
                             key={room.id}
                             className={`flex items-center space-x-3 p-3 border rounded-lg ${hasOverlap && !isReservedForDates
-                                ? "bg-orange-50 border-orange-200"
-                                : isReservedForDates
-                                  ? "bg-blue-50 border-blue-200"
-                                  : isOutOfOrderForSelectedDates
-                                    ? "bg-red-50 border-red-200"
-                                    : !room.isActive
-                                      ? "bg-gray-50 border-gray-200"
-                                      : "bg-white border-gray-200"
+                              ? "bg-orange-50 border-orange-200"
+                              : isReservedForDates
+                                ? "bg-blue-50 border-blue-200"
+                                : isOutOfOrderForSelectedDates
+                                  ? "bg-red-50 border-red-200"
+                                  : !room.isActive
+                                    ? "bg-gray-50 border-gray-200"
+                                    : "bg-white border-gray-200"
                               }`}
                           >
                             <Checkbox

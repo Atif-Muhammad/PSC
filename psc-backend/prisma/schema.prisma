@@ -48,11 +48,12 @@ model Member {
   hallBookings        HallBooking[]
   lawnBookings        LawnBooking[]
   photoshootBookings  PhotoshootBooking[]
+
   sportsSubscriptions SportSubscription[]
-  RoomHolding         Room[]
-  hallHolding         Hall[]
-  lawnHolding         Lawn[]
-  photoshootHolding   Photoshoot[]
+
+  RoomHolding         roomHoldings[]
+  hallHolding         hallHoldings[]
+  lawnHolding         lawnHoldings[]
 
   totalBookings   Int       @default(0)
   drAmount        Decimal   @default(0.00) @db.Decimal(12, 2)
@@ -327,11 +328,19 @@ model Room {
   isBooked     Boolean           @default(false)
   bookings     RoomBooking[]
   reservations RoomReservation[]
+  holdings roomHoldings[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model roomHoldings {
+  id Int @id @unique @default(autoincrement())
   onHold       Boolean           @default(false)
   holdExpiry   DateTime?
   holdBy       String?
   holdMember   Member?           @relation(fields: [holdBy], references: [Membership_No])
-
+  roomId Int
+  room Room @relation(fields: [roomId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -368,10 +377,7 @@ model Hall {
 
   images Json @default("[]")
 
-  onHold     Boolean   @default(false)
-  holdExpiry DateTime?
-  holdBy     String?
-  holdMember Member?   @relation(fields: [holdBy], references: [Membership_No])
+  holdings hallHoldings[]
 
   isBooked Boolean       @default(false)
   bookings HallBooking[]
@@ -379,6 +385,18 @@ model Hall {
   isReserved   Boolean           @default(false)
   reservations HallReservation[]
 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model hallHoldings {
+  id Int @id @unique @default(autoincrement())
+  onHold       Boolean           @default(false)
+  holdExpiry   DateTime?
+  holdBy       String?
+  holdMember   Member?           @relation(fields: [holdBy], references: [Membership_No])
+  hallId Int
+  hall Hall @relation(fields: [hallId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -432,7 +450,6 @@ model LawnOutOfOrder {
   @@index([startDate])
   @@index([endDate])
 }
-
 model Lawn {
   id             Int          @id @default(autoincrement())
   description    String       @db.VarChar(200)
@@ -445,16 +462,23 @@ model Lawn {
   isActive       Boolean      @default(true)
 
   outOfOrders LawnOutOfOrder[]
-
-  onHold     Boolean   @default(false)
-  holdExpiry DateTime?
-  holdBy     String?
-  holdMember Member?   @relation(fields: [holdBy], references: [Membership_No])
+  holdings lawnHoldings[]
 
   isBooked  Boolean       @default(false)
   bookings  LawnBooking[]
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
+}
+model lawnHoldings {
+  id Int @id @unique @default(autoincrement())
+  onHold       Boolean           @default(false)
+  holdExpiry   DateTime?
+  holdBy       String?
+  holdMember   Member?           @relation(fields: [holdBy], references: [Membership_No])
+  lawnId Int
+  lawn Lawn @relation(fields: [lawnId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model LawnCategory {
@@ -476,9 +500,9 @@ model Photoshoot {
   isActive Boolean @default(true)
   isBooked   Boolean             @default(false)
   bookings   PhotoshootBooking[]
-  onHold     Boolean             @default(false)
-  holdBy     String?
-  holdMember Member?             @relation(fields: [holdBy], references: [Membership_No])
+  // onHold     Boolean             @default(false)
+  // holdBy     String?
+  // holdMember Member?             @relation(fields: [holdBy], references: [Membership_No])
   createdAt  DateTime            @default(now())
   updatedAt  DateTime            @updatedAt
 }

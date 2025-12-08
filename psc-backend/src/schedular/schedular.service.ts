@@ -154,7 +154,7 @@ export class SchedularService {
     this.logger.log(`Checking for expired room holds...`);
     const now = new Date();
 
-    const expiredHolds = await this.prismaService.room.updateMany({
+    const expiredRoomHolds = await this.prismaService.roomHoldings.updateMany({
       where: {
         onHold: true,
         holdExpiry: { lt: now },
@@ -165,8 +165,37 @@ export class SchedularService {
         holdBy: null,
       },
     });
-    if (expiredHolds.count > 0) {
-      this.logger.log(`Released ${expiredHolds.count} expired room holds.`);
+    const expiredHallHolds = await this.prismaService.hallHoldings.updateMany({
+      where: {
+        onHold: true,
+        holdExpiry: { lt: now },
+      },
+      data: {
+        onHold: false,
+        holdExpiry: null,
+        holdBy: null,
+      },
+    });
+
+    // Update lawn holdings
+    const expiredLawnHolds = await this.prismaService.lawnHoldings.updateMany({
+      where: {
+        onHold: true,
+        holdExpiry: { lt: now },
+      },
+      data: {
+        onHold: false,
+        holdExpiry: null,
+        holdBy: null,
+      },
+    });
+    const totalExpired =
+      expiredRoomHolds.count + expiredHallHolds.count + expiredLawnHolds.count;
+
+    if (totalExpired > 0) {
+      this.logger.log(
+        `Released ${totalExpired} expired holds: ${expiredRoomHolds.count} rooms, ${expiredHallHolds.count} halls, ${expiredLawnHolds.count} lawns`,
+      );
     }
   }
 
