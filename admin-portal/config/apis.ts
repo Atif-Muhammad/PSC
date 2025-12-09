@@ -1360,3 +1360,23 @@ export const deleteAffiliatedClubRequest = async (id: number): Promise<any> => {
     throw { message, status: error.response?.status || 500 };
   }
 };
+
+
+
+// member bookings
+export const memberBookings = async (type: string, membership_no: string): Promise<any> => {
+  try {
+    const response = await axios.get(`${base_url}/booking/member/bookings/all?type=${type}&membership_no=${membership_no}`, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error: any) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Failed to delete request";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};

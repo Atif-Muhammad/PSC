@@ -4173,4 +4173,36 @@ export class BookingService {
       },
     });
   }
+
+  // member bookings
+  async memberBookings(Membership_No: string, type: 'Room' | 'Hall' | 'Lawn' | 'Photoshoot'){
+    const member = await this.prismaService.member.findFirst({
+      where: {Membership_No}
+    })
+    if(!member) throw new NotFoundException(`Membership number not found`)
+    
+    if(type === "Room"){
+      return await this.prismaService.roomBooking.findMany({
+        where: {Membership_No}
+      })
+    }else if(type === "Hall"){
+      return await this.prismaService.hallBooking.findMany({
+        where: {memberId: member.Sno}
+      })
+    }else if(type === "Lawn"){
+      return await this.prismaService.lawnBooking.findMany({
+        where: {memberId: member.Sno}
+      })
+    }else if(type === "Photoshoot"){
+      return await this.prismaService.photoshootBooking.findMany({
+        where: {memberId: member.Sno}
+      })
+    }
+    
+  }
+
+
 }
+
+
+

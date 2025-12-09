@@ -36,7 +36,6 @@ const modules = [
   "Calendar",
   "Notifications",
   "Members",
-  "Admins",
   "Rooms",
   "Room Bookings",
   "Halls",
