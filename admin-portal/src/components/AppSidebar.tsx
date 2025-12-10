@@ -16,7 +16,8 @@ import {
   CalendarDays,
   Bell,
   Lock,
-  NotebookTabsIcon
+  NotebookTabsIcon,
+  Text
 } from "lucide-react";
 
 import {
@@ -104,6 +105,7 @@ const menuItems = [
   { title: "Affiliated Clubs", url: "/affiliated-clubs", icon: Building },
   { title: "Notifications", url: "/notifications", icon: Bell },
   { title: "Calendar", url: "/calendar", icon: CalendarDays },
+  { title: "Contents", url: "/contents", icon: Text },
 ];
 
 export function AppSidebar() {

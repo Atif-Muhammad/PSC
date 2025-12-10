@@ -47,6 +47,7 @@ const modules = [
   "Sports",
   "Accounts",
   "Affiliated Clubs",
+  "Contents"
 ];
 
 export default function Admins() {

@@ -29,6 +29,7 @@ import { userWho } from "../config/apis";
 import ClubRequestForm from "./pages/test/ClubRequestForm";
 import PermissionDenied from "./pages/PermissionDenied";
 import Bookings from "./pages/Bookings";
+import Content from "./pages/Content";
 
 const queryClient = new QueryClient();
 
@@ -53,6 +54,7 @@ const ROUTE_TO_PERMISSION_MAP: Record<string, string> = {
   "/affiliated-clubs": "Affiliated Clubs",
   "/notifications": "Notifications",
   "/calendar": "Calendar",
+  "/contents": "Contents"
 };
 
 // All routes in order for redirect
@@ -75,6 +77,7 @@ const ALL_ROUTES = [
   { path: "/rooms/types", label: "Room Types" },
   { path: "/lawns/categories", label: "Lawn Categories" },
   { path: "/accounts", label: "Accounts" },
+  { path: "/contents", label: "Contents" },
 ];
 
 // Higher-order component to wrap pages with permission check
@@ -263,6 +266,7 @@ const ProtectedAffiliatedClubs = withPermissions(AffiliatedClubs);
 const ProtectedNotifications = withPermissions(Notifications);
 const ProtectedCalendar = withPermissions(Calendar);
 const ProtectedBookings = withPermissions(Bookings);
+const ProtectedContents = withPermissions(Content);
 
 // Permission Denied page doesn't need permissions check
 function PermissionDeniedPage() {
@@ -383,6 +387,11 @@ function App() {
             <Route path="/bookings" element={
               <Layout>
                 <ProtectedBookings />
+              </Layout>
+            } />
+            <Route path="/contents" element={
+              <Layout>
+                <ProtectedContents />
               </Layout>
             } />
 
