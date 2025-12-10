@@ -1324,7 +1324,7 @@ export const createAffiliatedClubRequest = async (data: any): Promise<any> => {
   }
 };
 
-export const updateAffiliatedClubRequestStatus = async (data: {id: number, status: string}): Promise<any> => {
+export const updateAffiliatedClubRequestStatus = async (data: { id: number, status: string }): Promise<any> => {
   try {
     const response = await axios.patch(
       `${base_url}/affiliation/request/action?requestId=${data.id}&status=${data.status}`,
@@ -1380,3 +1380,150 @@ export const memberBookings = async (type: string, membership_no: string): Promi
     throw { message, status: error.response?.status || 500 };
   }
 };
+
+////////////////////////// CONTENT //////////////////////////
+
+// Events
+export const createEvent = async (data: any): Promise<any> => {
+  try {
+    const response = await axios.post(`${base_url}/content/events`, data, { withCredentials: true, headers: { 'Content-Type': 'multipart/form-data' } });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error creating event", status: error.response?.status || 500 }; }
+};
+export const getEvents = async (): Promise<any> => {
+  try {
+    const response = await axios.get(`${base_url}/content/events`, { withCredentials: true });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error fetching events", status: error.response?.status || 500 }; }
+};
+export const updateEvent = async ({ id, data }: { id: any, data: any }): Promise<any> => {
+  try {
+    const response = await axios.put(`${base_url}/content/events/${id}`, data, { withCredentials: true, headers: { 'Content-Type': 'multipart/form-data' } });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error updating event", status: error.response?.status || 500 }; }
+};
+export const deleteEvent = async (id: any): Promise<any> => {
+  try {
+    const response = await axios.delete(`${base_url}/content/events/${id}`, { withCredentials: true });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error deleting event", status: error.response?.status || 500 }; }
+};
+
+// Club Rules
+export const createRule = async (data: any): Promise<any> => {
+  try {
+    const response = await axios.post(`${base_url}/content/rules`, data, { withCredentials: true });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error creating rule", status: error.response?.status || 500 }; }
+};
+export const getRules = async (): Promise<any> => {
+  try {
+    const response = await axios.get(`${base_url}/content/rules`, { withCredentials: true });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error fetching rules", status: error.response?.status || 500 }; }
+};
+export const updateRule = async ({ id, data }: { id: any, data: any }): Promise<any> => {
+  try {
+    const response = await axios.put(`${base_url}/content/rules/${id}`, data, { withCredentials: true });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error updating rule", status: error.response?.status || 500 }; }
+};
+export const deleteRule = async (id: any): Promise<any> => {
+  try {
+    const response = await axios.delete(`${base_url}/content/rules/${id}`, { withCredentials: true });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error deleting rule", status: error.response?.status || 500 }; }
+};
+
+// Announcements
+export const createAnnouncement = async (data: any): Promise<any> => {
+  try {
+    const response = await axios.post(`${base_url}/content/announcements`, data, { withCredentials: true });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error creating announcement", status: error.response?.status || 500 }; }
+};
+export const getAnnouncements = async (): Promise<any> => {
+  try {
+    const response = await axios.get(`${base_url}/content/announcements`, { withCredentials: true });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error fetching announcements", status: error.response?.status || 500 }; }
+};
+export const updateAnnouncement = async ({ id, data }: { id: any, data: any }): Promise<any> => {
+  try {
+    const response = await axios.put(`${base_url}/content/announcements/${id}`, data, { withCredentials: true });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error updating announcement", status: error.response?.status || 500 }; }
+};
+export const deleteAnnouncement = async (id: any): Promise<any> => {
+  try {
+    const response = await axios.delete(`${base_url}/content/announcements/${id}`, { withCredentials: true });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error deleting announcement", status: error.response?.status || 500 }; }
+};
+
+// About Us
+export const upsertAboutUs = async (data: any): Promise<any> => {
+  try {
+    const response = await axios.post(`${base_url}/content/about-us`, data, { withCredentials: true });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error saving about us", status: error.response?.status || 500 }; }
+};
+export const getAboutUs = async (): Promise<any> => {
+  try {
+    const response = await axios.get(`${base_url}/content/about-us`, { withCredentials: true });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error fetching about us", status: error.response?.status || 500 }; }
+};
+
+// Club History
+export const createHistory = async (data: any): Promise<any> => {
+  try {
+    const response = await axios.post(`${base_url}/content/history`, data, { withCredentials: true, headers: { 'Content-Type': 'multipart/form-data' } });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error creating history", status: error.response?.status || 500 }; }
+};
+export const getHistory = async (): Promise<any> => {
+  try {
+    const response = await axios.get(`${base_url}/content/history`, { withCredentials: true });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error fetching history", status: error.response?.status || 500 }; }
+};
+export const updateHistory = async ({ id, data }: { id: any, data: any }): Promise<any> => {
+  try {
+    const response = await axios.put(`${base_url}/content/history/${id}`, data, { withCredentials: true, headers: { 'Content-Type': 'multipart/form-data' } });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error updating history", status: error.response?.status || 500 }; }
+};
+export const deleteHistory = async (id: any): Promise<any> => {
+  try {
+    const response = await axios.delete(`${base_url}/content/history/${id}`, { withCredentials: true });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error deleting history", status: error.response?.status || 500 }; }
+};
+
+// Promotional Ads
+export const createAd = async (data: any): Promise<any> => {
+  try {
+    const response = await axios.post(`${base_url}/content/ads`, data, { withCredentials: true, headers: { 'Content-Type': 'multipart/form-data' } });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error creating ad", status: error.response?.status || 500 }; }
+};
+export const getAds = async (): Promise<any> => {
+  try {
+    const response = await axios.get(`${base_url}/content/ads`, { withCredentials: true });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error fetching ads", status: error.response?.status || 500 }; }
+};
+export const updateAd = async ({ id, data }: { id: any, data: any }): Promise<any> => {
+  try {
+    const response = await axios.put(`${base_url}/content/ads/${id}`, data, { withCredentials: true, headers: { 'Content-Type': 'multipart/form-data' } });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error updating ad", status: error.response?.status || 500 }; }
+};
+export const deleteAd = async (id: any): Promise<any> => {
+  try {
+    const response = await axios.delete(`${base_url}/content/ads/${id}`, { withCredentials: true });
+    return response.data;
+  } catch (error: any) { throw { message: error.response?.data?.message || "Error deleting ad", status: error.response?.status || 500 }; }
+};
+
