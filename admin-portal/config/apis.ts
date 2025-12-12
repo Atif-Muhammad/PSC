@@ -1221,6 +1221,7 @@ export const createAffiliatedClub = async (data: any): Promise<any> => {
   try {
     const response = await axios.post(`${base_url}/affiliation/clubs`, data, {
       withCredentials: true,
+      headers: { 'Content-Type': 'multipart/form-data' },
     });
     return response.data;
   } catch (error: any) {
@@ -1238,6 +1239,7 @@ export const updateAffiliatedClub = async (data: any): Promise<any> => {
   try {
     const response = await axios.put(`${base_url}/affiliation/clubs`, data, {
       withCredentials: true,
+      headers: { 'Content-Type': 'multipart/form-data' },
     });
     return response.data;
   } catch (error: any) {

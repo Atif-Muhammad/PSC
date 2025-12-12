@@ -6,6 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import {
   CreateAffiliatedClubDto,
   UpdateAffiliatedClubDto,
@@ -21,7 +22,8 @@ export class AffiliationService {
   constructor(
     private prismaService: PrismaService,
     private mailerService: MailerService,
-  ) {}
+    private cloudinary: CloudinaryService,
+  ) { }
 
   // -------------------- AFFILIATED CLUBS --------------------
 
@@ -68,7 +70,13 @@ export class AffiliationService {
     return club;
   }
 
-  async createAffiliatedClub(payload: CreateAffiliatedClubDto) {
+  async createAffiliatedClub(payload: CreateAffiliatedClubDto, file?: Express.Multer.File) {
+    let imageUrl = null;
+    if (file) {
+      const upload = await this.cloudinary.uploadFile(file);
+      imageUrl = upload.url;
+    }
+
     return await this.prismaService.affiliatedClub.create({
       data: {
         name: payload.name,
@@ -76,12 +84,13 @@ export class AffiliationService {
         contactNo: payload.contactNo,
         email: payload.email,
         description: payload.description,
+        image: imageUrl ?? null,
         isActive: payload.isActive ?? true,
       },
     });
   }
 
-  async updateAffiliatedClub(payload: UpdateAffiliatedClubDto) {
+  async updateAffiliatedClub(payload: UpdateAffiliatedClubDto, file?: Express.Multer.File) {
     if (!payload.id) {
       throw new HttpException(
         'Affiliated club ID is required',
@@ -92,6 +101,12 @@ export class AffiliationService {
     // Check if club exists
     await this.getAffiliatedClubById(payload.id);
 
+    let imageUrl = payload.image; // Keep existing if not replaced
+    if (file) {
+      const upload = await this.cloudinary.uploadFile(file);
+      imageUrl = upload.url;
+    }
+
     return await this.prismaService.affiliatedClub.update({
       where: { id: Number(payload.id) },
       data: {
@@ -100,6 +115,7 @@ export class AffiliationService {
         contactNo: payload.contactNo,
         email: payload.email,
         description: payload.description,
+        image: imageUrl ?? null,
         isActive: payload.isActive,
       },
     });
@@ -160,7 +176,7 @@ export class AffiliationService {
         affiliatedClubId: payload.affiliatedClubId,
         guestCount: payload.guestCount || 0,
         purpose: payload.purpose,
-        requestedDate: new Date(payload.requestedDate) 
+        requestedDate: new Date(payload.requestedDate)
       },
       include: {
         affiliatedClub: true,

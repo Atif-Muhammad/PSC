@@ -741,22 +741,22 @@ export class BookingService {
                 endDate: { gte: checkInDate },
               },
             },
+            holdings: {
+              where:{
+                id: roomId,
+                onHold: true,
+                holdExpiry: {gt: new Date()},
+                NOT: {holdBy: member.Membership_No}
+              }
+            }
           },
         });
+        
+        if (room?.holdings?.length! > 0) throw new ConflictException('Hall is currently on hold');
         if (!room) throw new NotFoundException(`Room ${roomId} not found`);
         if (!room.isActive)
           throw new ConflictException(`Room ${room.roomNumber} not active`);
 
-        // Check holdings
-        const roomHold = await prisma.roomHoldings.findFirst({
-          where: {
-            roomId: room.id,
-            onHold: true,
-            holdExpiry: { gt: new Date() },
-          },
-        });
-        if (roomHold)
-          throw new ConflictException(`Room ${room.roomNumber} is on hold`);
 
         if (room.outOfOrders.length > 0) {
           const conflicts = room.outOfOrders
@@ -813,11 +813,6 @@ export class BookingService {
 
         bookings.push(booking);
 
-        // Release any holds and mark as booked
-        await prisma.roomHoldings.updateMany({
-          where: { roomId: room.id, onHold: true },
-          data: { onHold: false, holdExpiry: null, holdBy: null },
-        });
 
         await prisma.room.update({
           where: { id: room.id },
@@ -857,6 +852,11 @@ export class BookingService {
           Balance: { increment: totalPaid - totalOwed },
         },
       });
+
+      // delete roomholding
+      await prisma.roomHoldings.deleteMany({
+        where: {roomId: selectedRoomIds.map((id: any)=> Number(id))}
+      })
 
       return {
         success: true,
@@ -1704,6 +1704,7 @@ export class BookingService {
           hallId: hall.id,
           onHold: true,
           holdExpiry: { gt: new Date() },
+          NOT: {holdBy: member.Membership_No}
         },
       });
       if (hallHold) throw new ConflictException('Hall is currently on hold');
@@ -2611,6 +2612,7 @@ export class BookingService {
           lawnId: lawn.id,
           onHold: true,
           holdExpiry: { gt: new Date() },
+          NOT: {holdBy: member.Membership_No}
         },
       });
       if (lawnHold) throw new ConflictException('Lawn is currently on hold');

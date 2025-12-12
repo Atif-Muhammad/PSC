@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import { IsString, IsOptional, IsBoolean, IsNumber, IsEnum, IsNotEmpty } from 'class-validator';
 
 export class CreateAffiliatedClubDto {
@@ -18,14 +19,21 @@ export class CreateAffiliatedClubDto {
 
     @IsOptional()
     @IsString()
+    @IsOptional()
+    @IsString()
     description?: string;
 
     @IsOptional()
-    @IsBoolean()
+    @IsString()
+    image?: string;
+
+    @Type(()=> Boolean)
+    @IsNotEmpty()
     isActive?: boolean;
 }
 
 export class UpdateAffiliatedClubDto {
+    @Type(()=> Number)
     @IsNumber()
     id: number;
 
@@ -47,10 +55,16 @@ export class UpdateAffiliatedClubDto {
 
     @IsOptional()
     @IsString()
+    @IsOptional()
+    @IsString()
     description?: string;
 
     @IsOptional()
-    @IsBoolean()
+    @IsString()
+    image?: string;
+
+    @Type(()=> Boolean)
+    @IsNotEmpty()
     isActive?: boolean;
 }
 
@@ -74,7 +88,7 @@ export class CreateAffiliatedClubRequestDto {
     @IsOptional()
     @IsString()
     purpose?: string;
-    @IsNotEmpty({message: "requested date must be provided"})
+    @IsNotEmpty({ message: "requested date must be provided" })
     requestedDate: string
 }
 

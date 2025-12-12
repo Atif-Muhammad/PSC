@@ -10,8 +10,11 @@ import {
     Patch,
     UseGuards,
     Req,
+    UseInterceptors,
+    UploadedFile,
 } from '@nestjs/common';
 import { AffiliationService } from './affiliation.service';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
     CreateAffiliatedClubDto,
     UpdateAffiliatedClubDto,
@@ -42,13 +45,21 @@ export class AffiliationController {
     }
 
     @Post('clubs')
-    async createAffiliatedClub(@Body() body: CreateAffiliatedClubDto) {
-        return await this.affiliationService.createAffiliatedClub(body);
+    @UseInterceptors(FileInterceptor('image'))
+    async createAffiliatedClub(
+        @Body() body: CreateAffiliatedClubDto,
+        @UploadedFile() file: Express.Multer.File,
+    ) {
+        return await this.affiliationService.createAffiliatedClub(body, file);
     }
 
     @Put('clubs')
-    async updateAffiliatedClub(@Body() body: UpdateAffiliatedClubDto) {
-        return await this.affiliationService.updateAffiliatedClub(body);
+    @UseInterceptors(FileInterceptor('image'))
+    async updateAffiliatedClub(
+        @Body() body: UpdateAffiliatedClubDto,
+        @UploadedFile() file: Express.Multer.File,
+    ) {
+        return await this.affiliationService.updateAffiliatedClub(body, file);
     }
 
     @Delete('clubs/:id')
@@ -70,8 +81,8 @@ export class AffiliationController {
 
     @UseGuards(JwtAccGuard)
     @Post('requests')
-    async createRequest(@Body() body: any, @Req() req: {user: {id: string}}) {
-        return await this.affiliationService.createRequest({...body, membershipNo: req.user.id})
+    async createRequest(@Body() body: any, @Req() req: { user: { id: string } }) {
+        return await this.affiliationService.createRequest({ ...body, membershipNo: req.user.id })
     }
 
     @Put('requests/status')
@@ -88,7 +99,7 @@ export class AffiliationController {
 
     // handle approval/rejection
     @Patch('request/action')
-    async handleAction(@Query('requestId') requestId: number, @Query('status') status: "APPROVED" | "REJECTED"){
+    async handleAction(@Query('requestId') requestId: number, @Query('status') status: "APPROVED" | "REJECTED") {
         return await this.affiliationService.handleAction(status, Number(requestId))
     }
 }
