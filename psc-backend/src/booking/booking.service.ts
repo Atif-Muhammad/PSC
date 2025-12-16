@@ -27,7 +27,7 @@ import {
 
 @Injectable()
 export class BookingService {
-  constructor(private prismaService: PrismaService) {}
+  constructor(private prismaService: PrismaService) { }
   async lock() {
     const bookings = await this.prismaService.roomBooking.findMany({
       where: {
@@ -720,7 +720,7 @@ export class BookingService {
         pricingType === 'member' ? roomType.priceMember : roomType.priceGuest;
       const nights = Math.ceil(
         (checkOutDate.getTime() - checkInDate.getTime()) /
-          (1000 * 60 * 60 * 24),
+        (1000 * 60 * 60 * 24),
       );
       const pricePerRoom = Number(pricePerNight) * nights;
 
@@ -742,16 +742,16 @@ export class BookingService {
               },
             },
             holdings: {
-              where:{
+              where: {
                 id: roomId,
                 onHold: true,
-                holdExpiry: {gt: new Date()},
-                NOT: {holdBy: member.Membership_No}
+                holdExpiry: { gt: new Date() },
+                NOT: { holdBy: member.Membership_No }
               }
             }
           },
         });
-        
+
         if (room?.holdings?.length! > 0) throw new ConflictException('Hall is currently on hold');
         if (!room) throw new NotFoundException(`Room ${roomId} not found`);
         if (!room.isActive)
@@ -855,7 +855,7 @@ export class BookingService {
 
       // delete roomholding
       await prisma.roomHoldings.deleteMany({
-        where: {roomId: selectedRoomIds.map((id: any)=> Number(id))}
+        where: { roomId: selectedRoomIds.map((id: any) => Number(id)) }
       })
 
       return {
@@ -1704,7 +1704,7 @@ export class BookingService {
           hallId: hall.id,
           onHold: true,
           holdExpiry: { gt: new Date() },
-          NOT: {holdBy: member.Membership_No}
+          NOT: { holdBy: member.Membership_No }
         },
       });
       if (hallHold) throw new ConflictException('Hall is currently on hold');
@@ -2089,10 +2089,11 @@ export class BookingService {
       paidBy = 'MEMBER',
       guestName,
       guestContact,
+      eventType,
     } = payload;
 
     // ── VALIDATION ───────────────────────────────────────────
-    if (!membershipNo || !entityId || !bookingDate || !numberOfGuests)
+    if (!membershipNo || !entityId || !bookingDate || !numberOfGuests || !eventType)
       throw new BadRequestException('Required fields missing');
 
     const booking = new Date(bookingDate);
@@ -2193,6 +2194,7 @@ export class BookingService {
         paidBy,
         guestName,
         guestContact: guestContact?.toString(),
+        eventType,
       },
     });
 
@@ -2264,6 +2266,7 @@ export class BookingService {
       guestName,
       guestContact,
       remarks,
+      eventType,
     } = payload;
 
     if (
@@ -2272,7 +2275,8 @@ export class BookingService {
       !entityId ||
       !bookingDate ||
       !numberOfGuests ||
-      !eventTime
+      !eventTime ||
+      !eventType
     )
       throw new BadRequestException('Required fields missing');
 
@@ -2429,6 +2433,7 @@ export class BookingService {
           paidBy,
           guestName,
           guestContact: guestContact?.toString(),
+          eventType,
           refundAmount,
           refundReturned: false,
         },
@@ -2547,7 +2552,7 @@ export class BookingService {
     }
   }
 
-  async dBookingLawn(bookingId) {}
+  async dBookingLawn(bookingId) { }
 
   // member lawn booking
   async cBookingLawnMember(payload: any) {
@@ -2566,6 +2571,7 @@ export class BookingService {
       paidBy = 'MEMBER',
       guestName,
       guestContact,
+      eventType,
     } = payload;
 
     // ── VALIDATION ───────────────────────────────────────────
@@ -2612,7 +2618,7 @@ export class BookingService {
           lawnId: lawn.id,
           onHold: true,
           holdExpiry: { gt: new Date() },
-          NOT: {holdBy: member.Membership_No}
+          NOT: { holdBy: member.Membership_No }
         },
       });
       if (lawnHold) throw new ConflictException('Lawn is currently on hold');
@@ -2692,6 +2698,7 @@ export class BookingService {
           paidBy,
           guestName,
           guestContact: guestContact?.toString(),
+          eventType,
         },
         include: {
           lawn: {
@@ -2742,6 +2749,11 @@ export class BookingService {
         });
       }
 
+      // remove onhold
+      await this.prismaService.lawnHoldings.deleteMany({
+        where: { lawnId: booked.lawnId }
+      })
+
       return {
         success: true,
         message: `Booked ${lawn.description}`,
@@ -2776,6 +2788,7 @@ export class BookingService {
       guestName,
       guestContact,
       remarks,
+      eventType,
     } = payload;
 
     if (
@@ -2929,6 +2942,7 @@ export class BookingService {
         paidBy,
         guestName,
         guestContact: guestContact?.toString(),
+        eventType,
         refundAmount,
         refundReturned: false,
       },
@@ -4177,30 +4191,30 @@ export class BookingService {
   }
 
   // member bookings
-  async memberBookings(Membership_No: string, type: 'Room' | 'Hall' | 'Lawn' | 'Photoshoot'){
+  async memberBookings(Membership_No: string, type: 'Room' | 'Hall' | 'Lawn' | 'Photoshoot') {
     const member = await this.prismaService.member.findFirst({
-      where: {Membership_No}
+      where: { Membership_No }
     })
-    if(!member) throw new NotFoundException(`Membership number not found`)
-    
-    if(type === "Room"){
+    if (!member) throw new NotFoundException(`Membership number not found`)
+
+    if (type === "Room") {
       return await this.prismaService.roomBooking.findMany({
-        where: {Membership_No}
+        where: { Membership_No }
       })
-    }else if(type === "Hall"){
+    } else if (type === "Hall") {
       return await this.prismaService.hallBooking.findMany({
-        where: {memberId: member.Sno}
+        where: { memberId: member.Sno }
       })
-    }else if(type === "Lawn"){
+    } else if (type === "Lawn") {
       return await this.prismaService.lawnBooking.findMany({
-        where: {memberId: member.Sno}
+        where: { memberId: member.Sno }
       })
-    }else if(type === "Photoshoot"){
+    } else if (type === "Photoshoot") {
       return await this.prismaService.photoshootBooking.findMany({
-        where: {memberId: member.Sno}
+        where: { memberId: member.Sno }
       })
     }
-    
+
   }
 
 

@@ -79,6 +79,7 @@ export interface LawnBooking {
   paidBy?: string;
   guestName?: string;
   guestContact?: string;
+  eventType?: string;
   createdAt?: string;
 }
 
@@ -240,6 +241,7 @@ export default function LawnBookings() {
   const [bookingDate, setBookingDate] = useState("");
   const [guestCount, setGuestCount] = useState(0);
   const [eventTime, setEventTime] = useState("NIGHT");
+  const [eventType, setEventType] = useState("");
 
   const [detailBooking, setDetailBooking] = useState<LawnBooking | null>(null);
   const [openDetails, setOpenDetails] = useState(false)
@@ -507,6 +509,7 @@ export default function LawnBookings() {
     setBookingDate("");
     setGuestCount(0);
     setEventTime("NIGHT");
+    setEventType("");
     setSelectedMember(null);
     setMemberSearch("");
     setShowMemberResults(false);
@@ -518,10 +521,10 @@ export default function LawnBookings() {
   };
 
   const handleCreateBooking = () => {
-    if (!selectedMember || !selectedLawn || !bookingDate || guestCount < 1) {
+    if (!selectedMember || !selectedLawn || !bookingDate || !eventType || guestCount < 1) {
       toast({
         title: "Please fill all required fields",
-        description: "Member, lawn, booking date, and guest count are required",
+        description: "Member, lawn, booking date, event type, and guest count are required",
         variant: "destructive",
         duration: 3000
       });
@@ -553,6 +556,7 @@ export default function LawnBookings() {
       pricingType: pricingType,
       paymentMode: "CASH",
       eventTime: eventTime,
+      eventType: eventType,
       paidBy: guestSec.paidBy,
       guestName: guestSec.guestName,
       guestContact: guestSec.guestContact
@@ -578,6 +582,7 @@ export default function LawnBookings() {
       pricingType: editBooking.pricingType || "member",
       paymentMode: "CASH",
       eventTime: editBooking.bookingTime || "NIGHT",
+      eventType: editBooking.eventType,
     };
 
     updateMutation.mutate(payload);
@@ -809,6 +814,23 @@ export default function LawnBookings() {
                   />
                 </div>
                 <div>
+                  <Label>Event Type *</Label>
+                  <Select value={eventType} onValueChange={setEventType}>
+                    <SelectTrigger className="mt-2">
+                      <SelectValue placeholder="Select event type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="mehandi">Mehandi</SelectItem>
+                      <SelectItem value="barat">Barat</SelectItem>
+                      <SelectItem value="walima">Walima</SelectItem>
+                      <SelectItem value="birthday">Birthday</SelectItem>
+                      <SelectItem value="corporate">Corporate Event</SelectItem>
+                      <SelectItem value="wedding">Wedding</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
                   <Label>Guest Count *</Label>
                   <Input
                     type="number"
@@ -953,6 +975,7 @@ export default function LawnBookings() {
                   <TableHead>Member</TableHead>
                   <TableHead>Lawn</TableHead>
                   <TableHead>Date</TableHead>
+                  <TableHead>Event Type</TableHead>
                   <TableHead>Time</TableHead>
                   <TableHead>Guests</TableHead>
                   <TableHead>Total Price</TableHead>
@@ -973,6 +996,7 @@ export default function LawnBookings() {
                     </TableCell>
                     <TableCell>{booking.lawn?.description}</TableCell>
                     <TableCell>{new Date(booking.bookingDate).toLocaleDateString()}</TableCell>
+                    <TableCell>{booking.eventType}</TableCell>
                     <TableCell>
                       {getTimeSlotBadge(booking.bookingTime || "NIGHT")}
                     </TableCell>
@@ -1142,7 +1166,7 @@ export default function LawnBookings() {
 
                   setEditBooking(prev => prev ? {
                     ...prev,
-                    lawn: { ...lawn, id: lawnId, lawnCategory: { id: lawn.lawnCategoryId }},
+                    lawn: { ...lawn, id: lawnId, lawnCategory: { id: lawn.lawnCategoryId } },
                     totalPrice: newPrice,
                     paidAmount: newPaidAmount,
                     pendingAmount: newPendingAmount,
@@ -1182,6 +1206,26 @@ export default function LawnBookings() {
                 placeholder="Select booking date"
                 minDate={new Date()}
               />
+            </div>
+            <div>
+              <Label>Event Type</Label>
+              <Select
+                value={editBooking?.eventType || ""}
+                onValueChange={(val) => setEditBooking(prev => prev ? { ...prev, eventType: val } : null)}
+              >
+                <SelectTrigger className="mt-2">
+                  <SelectValue placeholder="Select event type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="mehandi">Mehandi</SelectItem>
+                  <SelectItem value="barat">Barat</SelectItem>
+                  <SelectItem value="walima">Walima</SelectItem>
+                  <SelectItem value="birthday">Birthday</SelectItem>
+                  <SelectItem value="corporate">Corporate Event</SelectItem>
+                  <SelectItem value="wedding">Wedding</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label>Event Time</Label>
@@ -1417,6 +1461,7 @@ export default function LawnBookings() {
                   pricingType: editBooking.pricingType || "member",
                   paymentMode: "CASH",
                   eventTime: editBooking.bookingTime || "NIGHT",
+                  eventType: editBooking.eventType,
                   paidBy: editBooking.paidBy,
                   guestName: editBooking.guestName,
                   guestContact: editBooking.guestContact

@@ -153,6 +153,7 @@ model LawnBooking {
   memberId      Int
   lawnId        Int
   bookingDate   DateTime
+  eventType     String?       @db.VarChar(255)
   bookingTime   BookingOpt    @default(NIGHT)
   guestsCount   Int
   totalPrice    Decimal       @default(0.00) @db.Decimal(30, 2)
