@@ -855,7 +855,7 @@ export class BookingService {
 
       // delete roomholding
       await prisma.roomHoldings.deleteMany({
-        where: { roomId: selectedRoomIds.map((id: any) => Number(id)) }
+        where: { roomId: {in: selectedRoomIds.map((id: any) => Number(id))} }
       })
 
       return {

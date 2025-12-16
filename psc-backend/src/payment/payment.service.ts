@@ -130,7 +130,7 @@ export class PaymentService {
         isActive: true,
         holdings: {
           none: {
-            holdMember: bookingData.membership_no.toString(),
+            holdBy: bookingData.membership_no.toString(),
             onHold: true,
             holdExpiry: { gt: new Date() },
           },
@@ -309,7 +309,7 @@ export class PaymentService {
         outOfOrders: true, // Include out-of-order periods
         holdings: {
           where: {
-            holdMember: bookingData.membership_no,
+            holdBy: bookingData.membership_no,
             onHold: true,
             holdExpiry: { gt: new Date() },
           },
@@ -586,7 +586,7 @@ export class PaymentService {
         },
         holdings: {
           where: {
-            holdMember: bookingData.membership_no,
+            holdBy: bookingData.membership_no,
             onHold: true,
             holdExpiry: { gt: new Date() },
           },
