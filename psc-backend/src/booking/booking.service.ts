@@ -2574,6 +2574,8 @@ export class BookingService {
       eventType,
     } = payload;
 
+    console.log(payload)
+
     // ── VALIDATION ───────────────────────────────────────────
     if (
       !membershipNo ||
@@ -2711,11 +2713,6 @@ export class BookingService {
       const updateData: any = { onHold: false, holdBy: null, holdExpiry: null };
       if (booking.getTime() === today.getTime()) updateData.isBooked = true;
 
-      await prisma.lawn.update({
-        where: { id: lawn.id },
-        data: updateData,
-      });
-
       // ── UPDATE MEMBER LEDGER ───────────────────────────────
       await prisma.member.update({
         where: { Membership_No: membershipNo.toString() },
@@ -2753,6 +2750,7 @@ export class BookingService {
       await this.prismaService.lawnHoldings.deleteMany({
         where: { lawnId: booked.lawnId }
       })
+      console.log("::::",booked)
 
       return {
         success: true,

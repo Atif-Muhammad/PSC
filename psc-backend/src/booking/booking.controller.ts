@@ -21,7 +21,7 @@ import { PaymentMode } from '@prisma/client';
 
 @Controller('booking')
 export class BookingController {
-  constructor(private readonly bookingService: BookingService) {}
+  constructor(private readonly bookingService: BookingService) { }
 
   @Get('lock')
   async lockBookings() {
@@ -257,6 +257,7 @@ export class BookingController {
 
   @Post('member/booking/lawn')
   async memberBookingLawn(@Body() payload: any) {
+    console.log("test:", payload)
     const { membership_no } = payload.consumerInfo;
     const {
       lawnId,
@@ -264,6 +265,7 @@ export class BookingController {
       eventTime,
       eventType,
       pricingType,
+      numberOfGuests,
       specialRequest,
       totalPrice,
 
@@ -303,7 +305,7 @@ export class BookingController {
       paidAmount: totalPrice,
       pendingAmount: 0,
       paymentMode: 'ONLINE',
-
+      numberOfGuests,
       paidBy,
       guestName,
       guestContact,

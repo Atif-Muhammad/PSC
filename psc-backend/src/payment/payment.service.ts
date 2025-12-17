@@ -14,7 +14,7 @@ import {
 
 @Injectable()
 export class PaymentService {
-  constructor(private prismaService: PrismaService) {}
+  constructor(private prismaService: PrismaService) { }
 
   // kuick pay
   // Mock payment gateway call - replace with actual integration
@@ -175,7 +175,7 @@ export class PaymentService {
 
       throw new ConflictException(
         `Only ${availableRooms.length} room(s) available. Requested: ${bookingData.numberOfRooms}. ` +
-          `${unavailableCount} room(s) are either reserved, booked, on maintenance, or on active hold.`,
+        `${unavailableCount} room(s) are either reserved, booked, on maintenance, or on active hold.`,
       );
     }
 
@@ -747,9 +747,8 @@ export class PaymentService {
 
     // ── 13. PUT LAWN ON HOLD ────────────────────────────────
     try {
-      await this.prismaService.lawnHoldings.update({
-        where: { id: lawnExists.id },
-         data: {
+      await this.prismaService.lawnHoldings.create({
+        data: {
           lawnId: lawnExists.id,
           onHold: true,
           holdExpiry: holdExpiry,
@@ -771,14 +770,15 @@ export class PaymentService {
     const bookingRecord = {
       lawnId: lawnExists.id,
       bookingDate: bookingData.bookingDate,
-      bookingTime: normalizedEventTime,
-      guestsCount: bookingData.numberOfGuests,
+      eventTime: normalizedEventTime,
+      numberOfGuests: bookingData.numberOfGuests,
       pricingType: bookingData.pricingType,
+      eventType: bookingData.eventType || '',
       specialRequest: bookingData.specialRequest || '',
       totalPrice,
     };
 
-    console.log('Lawn booking record prepared:', bookingRecord);
+    // console.log('Lawn booking record prepared:', bookingRecord);
 
     // ── 15. GENERATE INVOICE ────────────────────────────────
     try {
@@ -787,7 +787,6 @@ export class PaymentService {
         EVENING: 'Evening (2:00 PM - 8:00 PM)',
         NIGHT: 'Night (8:00 PM - 12:00 AM)',
       };
-
       const invoiceResponse = await this.callPaymentGateway({
         type: 'lawn',
         amount: totalPrice,
@@ -837,9 +836,9 @@ export class PaymentService {
             MaintenancePeriods:
               lawnExists.outOfOrders.length > 0
                 ? lawnExists.outOfOrders.map((period) => ({
-                    dates: `${new Date(period.startDate).toLocaleDateString()} - ${new Date(period.endDate).toLocaleDateString()}`,
-                    reason: period.reason,
-                  }))
+                  dates: `${new Date(period.startDate).toLocaleDateString()} - ${new Date(period.endDate).toLocaleDateString()}`,
+                  reason: period.reason,
+                }))
                 : [],
           },
         },
@@ -1058,7 +1057,7 @@ export class PaymentService {
 
 
   // check idempotency
-  async checkIdempo(idempotencyKey: string){
+  async checkIdempo(idempotencyKey: string) {
     console.log(idempotencyKey)
   }
 }
