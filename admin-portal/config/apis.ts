@@ -1529,3 +1529,23 @@ export const deleteAd = async (id: any): Promise<any> => {
   } catch (error: any) { throw { message: error.response?.data?.message || "Error deleting ad", status: error.response?.status || 500 }; }
 };
 
+/////////////////////////////////////////////////
+
+
+// Notifications
+export const sendNotification = async (payload: any): Promise<any> => {
+  try {
+    const response = await axios.post(`${base_url}/notification/send-msg`, { payload }, {
+      withCredentials: true,
+    });
+    return response.data;
+  } catch (error: any) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
