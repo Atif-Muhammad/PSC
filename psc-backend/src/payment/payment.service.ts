@@ -222,6 +222,9 @@ export class PaymentService {
       totalPrice,
       selectedRoomIds: selectedRooms.map((room) => room.id),
       selectedRoomNumbers: selectedRooms.map((room) => room.roomNumber),
+      guestName: bookingData.guestName,
+      guestPhone: bookingData.guestPhone,
+      
     };
 
     // Call payment gateway
@@ -483,6 +486,9 @@ export class PaymentService {
       numberOfGuests: bookingData.numberOfGuests || 0,
       pricingType: bookingData.pricingType,
       specialRequest: bookingData.specialRequest || '',
+      guestName: bookingData.guestName,
+      guestPhone: bookingData.guestPhone,
+      
       totalPrice,
     };
 
@@ -776,6 +782,8 @@ export class PaymentService {
       eventType: bookingData.eventType || '',
       specialRequest: bookingData.specialRequest || '',
       totalPrice,
+      guestName: bookingData.guestName,
+      guestPhone: bookingData.guestPhone,
     };
 
     // console.log('Lawn booking record prepared:', bookingRecord);

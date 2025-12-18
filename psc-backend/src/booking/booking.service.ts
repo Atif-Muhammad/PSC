@@ -222,9 +222,9 @@ export class BookingService {
       data: {
         totalBookings: { increment: 1 },
         lastBookingDate: now,
-        drAmount: { increment: paid },
-        crAmount: { increment: owed },
-        Balance: { increment: paid - owed },
+        bookingAmountPaid: { increment: Math.round(Number(paid)) },
+        bookingAmountDue: { increment: Math.round(Number(owed)) },
+        bookingBalance: { increment: Math.round(Number(paid) - Number(owed)) },
       },
     });
 
@@ -519,9 +519,9 @@ export class BookingService {
       await this.prismaService.member.update({
         where: { Membership_No: membershipNo ?? booking.Membership_No },
         data: {
-          drAmount: { increment: paidDiff },
-          crAmount: { increment: owedDiff },
-          Balance: { increment: paidDiff - owedDiff },
+          bookingAmountPaid: { increment: Math.round(Number(paidDiff)) },
+          bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
+          bookingBalance: { increment: Math.round(Number(paidDiff) - Number(owedDiff)) },
           lastBookingDate: new Date(),
         },
       });
@@ -614,8 +614,8 @@ export class BookingService {
       await this.prismaService.member.update({
         where: { Membership_No: memberId },
         data: {
-          crAmount: { increment: refundAmount },
-          Balance: { decrement: refundAmount },
+          bookingAmountDue: { increment: Math.round(Number(refundAmount)) },
+          bookingBalance: { decrement: Math.round(Number(refundAmount)) },
         },
       });
     }
@@ -847,15 +847,15 @@ export class BookingService {
         data: {
           totalBookings: { increment: selectedRoomIds.length },
           lastBookingDate: new Date(),
-          drAmount: { increment: totalPaid },
-          crAmount: { increment: totalOwed },
-          Balance: { increment: totalPaid - totalOwed },
+          bookingAmountPaid: { increment: Math.round(Number(totalPaid)) },
+          bookingAmountDue: { increment: Math.round(Number(totalOwed)) },
+          bookingBalance: { increment: Math.round(Number(totalPaid) - Number(totalOwed)) },
         },
       });
 
       // delete roomholding
       await prisma.roomHoldings.deleteMany({
-        where: { roomId: {in: selectedRoomIds.map((id: any) => Number(id))} }
+        where: { roomId: { in: selectedRoomIds.map((id: any) => Number(id)) } }
       })
 
       return {
@@ -1060,9 +1060,9 @@ export class BookingService {
       await this.prismaService.member.update({
         where: { Membership_No: membershipNo.toString() },
         data: {
-          drAmount: { increment: paidDiff },
-          crAmount: { increment: owedDiff },
-          Balance: { increment: paidDiff - owedDiff },
+          bookingAmountPaid: { increment: Math.round(Number(paidDiff)) },
+          bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
+          bookingBalance: { increment: Math.round(Number(paidDiff) - Number(owedDiff)) },
           lastBookingDate: new Date(),
         },
       });
@@ -1274,9 +1274,9 @@ export class BookingService {
         data: {
           totalBookings: { increment: 1 },
           lastBookingDate: new Date(),
-          drAmount: { increment: paid },
-          crAmount: { increment: owed },
-          Balance: { increment: paid - owed },
+          bookingAmountPaid: { increment: Math.round(Number(paid)) },
+          bookingAmountDue: { increment: Math.round(Number(owed)) },
+          bookingBalance: { increment: Math.round(Number(paid) - Number(owed)) },
         },
       });
 
@@ -1547,9 +1547,9 @@ export class BookingService {
         await prisma.member.update({
           where: { Membership_No: membershipNo },
           data: {
-            drAmount: { increment: paidDiff },
-            crAmount: { increment: owedDiff },
-            Balance: { increment: paidDiff - owedDiff },
+            bookingAmountPaid: { increment: Math.round(Number(paidDiff)) },
+            bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
+            bookingBalance: { increment: Math.round(Number(paidDiff) - Number(owedDiff)) },
             lastBookingDate: new Date(),
           },
         });
@@ -1642,8 +1642,8 @@ export class BookingService {
       await this.prismaService.member.update({
         where: { Membership_No: memberId },
         data: {
-          crAmount: { increment: refundAmount },
-          Balance: { decrement: refundAmount },
+          bookingAmountDue: { increment: Math.round(Number(refundAmount)) },
+          bookingBalance: { decrement: Math.round(Number(refundAmount)) },
         },
       });
     }
@@ -1802,9 +1802,9 @@ export class BookingService {
         data: {
           totalBookings: { increment: 1 },
           lastBookingDate: new Date(),
-          drAmount: { increment: paid },
-          crAmount: { increment: owed },
-          Balance: { increment: paid - owed },
+          bookingAmountPaid: { increment: Math.round(Number(paid)) },
+          bookingAmountDue: { increment: Math.round(Number(owed)) },
+          bookingBalance: { increment: Math.round(Number(paid) - Number(owed)) },
         },
       });
 
@@ -2039,9 +2039,9 @@ export class BookingService {
         await prisma.member.update({
           where: { Membership_No: membershipNo },
           data: {
-            drAmount: { increment: paidDiff },
-            crAmount: { increment: owedDiff },
-            Balance: { increment: paidDiff - owedDiff },
+            bookingAmountPaid: { increment: Math.round(Number(paidDiff)) },
+            bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
+            bookingBalance: { increment: Math.round(Number(paidDiff) - Number(owedDiff)) },
             lastBookingDate: new Date(),
           },
         });
@@ -2213,9 +2213,9 @@ export class BookingService {
       data: {
         totalBookings: { increment: 1 },
         lastBookingDate: new Date(),
-        drAmount: { increment: paid },
-        crAmount: { increment: owed },
-        Balance: { increment: paid - owed },
+        bookingAmountPaid: { increment: Math.round(Number(paid)) },
+        bookingAmountDue: { increment: Math.round(Number(owed)) },
+        bookingBalance: { increment: Math.round(Number(paid) - Number(owed)) },
       },
     });
 
@@ -2466,9 +2466,9 @@ export class BookingService {
         await prisma.member.update({
           where: { Membership_No: membershipNo },
           data: {
-            drAmount: { increment: paidDiff },
-            crAmount: { increment: owedDiff },
-            Balance: { increment: paidDiff - owedDiff },
+            bookingAmountPaid: { increment: Math.round(Number(paidDiff)) },
+            bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
+            bookingBalance: { increment: Math.round(Number(paidDiff) - Number(owedDiff)) },
             lastBookingDate: new Date(),
           },
         });
@@ -2545,8 +2545,8 @@ export class BookingService {
       await this.prismaService.member.update({
         where: { Membership_No: memberId },
         data: {
-          crAmount: { increment: refundAmount },
-          Balance: { decrement: refundAmount },
+          bookingAmountDue: { increment: Math.round(Number(refundAmount)) },
+          bookingBalance: { decrement: Math.round(Number(refundAmount)) },
         },
       });
     }
@@ -2719,9 +2719,9 @@ export class BookingService {
         data: {
           totalBookings: { increment: 1 },
           lastBookingDate: new Date(),
-          drAmount: { increment: paid },
-          crAmount: { increment: owed },
-          Balance: { increment: paid - owed },
+          bookingAmountPaid: { increment: Math.round(Number(paid)) },
+          bookingAmountDue: { increment: Math.round(Number(owed)) },
+          bookingBalance: { increment: Math.round(Number(paid) - Number(owed)) },
         },
       });
 
@@ -2750,7 +2750,7 @@ export class BookingService {
       await this.prismaService.lawnHoldings.deleteMany({
         where: { lawnId: booked.lawnId }
       })
-      console.log("::::",booked)
+      console.log("::::", booked)
 
       return {
         success: true,
@@ -2972,9 +2972,9 @@ export class BookingService {
       await this.prismaService.member.update({
         where: { Membership_No: membershipNo },
         data: {
-          drAmount: { increment: paidDiff },
-          crAmount: { increment: owedDiff },
-          Balance: { increment: paidDiff - owedDiff },
+          bookingAmountPaid: { increment: Math.round(Number(paidDiff)) },
+          bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
+          bookingBalance: { increment: Math.round(Number(paidDiff) - Number(owedDiff)) },
           lastBookingDate: new Date(),
         },
       });
@@ -3132,9 +3132,9 @@ export class BookingService {
       data: {
         totalBookings: { increment: 1 },
         lastBookingDate: new Date(),
-        drAmount: { increment: paid },
-        crAmount: { increment: owed },
-        Balance: { increment: paid - owed },
+        bookingAmountPaid: { increment: Math.round(Number(paid)) },
+        bookingAmountDue: { increment: Math.round(Number(owed)) },
+        bookingBalance: { increment: Math.round(Number(paid) - Number(owed)) },
       },
     });
 
@@ -3282,8 +3282,8 @@ export class BookingService {
       await this.prismaService.member.update({
         where: { Sno: booking.memberId },
         data: {
-          crAmount: { increment: refundAmount },
-          Balance: { decrement: refundAmount },
+          bookingAmountDue: { increment: Math.round(Number(refundAmount)) },
+          bookingBalance: { decrement: Math.round(Number(refundAmount)) },
         },
       });
     }
@@ -3436,9 +3436,9 @@ export class BookingService {
       await this.prismaService.member.update({
         where: { Sno: booking.memberId },
         data: {
-          drAmount: { increment: paidDiff },
-          crAmount: { increment: owedDiff },
-          Balance: { increment: paidDiff - owedDiff },
+          bookingAmountPaid: { increment: Math.round(Number(paidDiff)) },
+          bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
+          bookingBalance: { increment: Math.round(Number(paidDiff) - Number(owedDiff)) },
         },
       });
     }
@@ -3659,9 +3659,9 @@ export class BookingService {
         data: {
           totalBookings: { increment: 1 },
           lastBookingDate: new Date(),
-          drAmount: { increment: paid },
-          crAmount: { increment: owed },
-          Balance: { increment: paid - owed },
+          bookingAmountPaid: { increment: Math.round(Number(paid)) },
+          bookingAmountDue: { increment: Math.round(Number(owed)) },
+          bookingBalance: { increment: Math.round(Number(paid) - Number(owed)) },
         },
       });
 
@@ -3880,8 +3880,8 @@ export class BookingService {
       await this.prismaService.member.update({
         where: { Membership_No: membershipNo },
         data: {
-          crAmount: { increment: refundAmount },
-          Balance: { increment: -refundAmount },
+          bookingAmountDue: { increment: Math.round(Number(refundAmount)) },
+          bookingBalance: { decrement: Math.round(Number(refundAmount)) },
         },
       });
     }
@@ -4036,9 +4036,9 @@ export class BookingService {
       await this.prismaService.member.update({
         where: { Membership_No: membershipNo },
         data: {
-          drAmount: { increment: paidDiff },
-          crAmount: { increment: owedDiff },
-          Balance: { increment: paidDiff - owedDiff },
+          bookingAmountPaid: { increment: Math.round(Number(paidDiff)) },
+          bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
+          bookingBalance: { increment: Math.round(Number(paidDiff) - Number(owedDiff)) },
           lastBookingDate: new Date(),
         },
       });

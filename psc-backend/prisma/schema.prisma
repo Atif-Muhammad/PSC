@@ -60,6 +60,11 @@ model Member {
   totalBookings   Int       @default(0)
   drAmount        Decimal   @default(0.00) @db.Decimal(12, 2)
   crAmount        Decimal   @default(0.00) @db.Decimal(12, 2)
+
+  bookingAmountPaid Int @default(0)
+  bookingAmountDue  Int @default(0)
+  bookingBalance   Int @default(0)
+
   lastBookingDate DateTime?
 
   vouchers PaymentVoucher[]
