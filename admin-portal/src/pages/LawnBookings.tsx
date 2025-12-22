@@ -71,7 +71,6 @@ export interface LawnBooking {
   paymentStatus: string;
   pricingType?: string;
   paidAmount?: number;
-  remainingAmount?: number;
   membershipNo?: string;
   entityId?: string;
   member?: Member;
@@ -147,9 +146,21 @@ const LawnPaymentSection = React.memo(
               <SelectItem value="UNPAID">Unpaid</SelectItem>
               <SelectItem value="HALF_PAID">Half Paid</SelectItem>
               <SelectItem value="PAID">Paid</SelectItem>
+              <SelectItem value="TO_BILL">To Bill</SelectItem>
             </SelectContent>
           </Select>
         </div>
+
+        {form.paymentStatus === "TO_BILL" && (
+          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+            <div className="flex items-center">
+              <Receipt className="h-4 w-4 text-blue-600 mr-2" />
+              <span className="text-sm font-medium text-blue-800">
+                Remaining amount will be added to Member's Ledger/Balance
+              </span>
+            </div>
+          </div>
+        )}
 
         {form.paymentStatus === "HALF_PAID" && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
@@ -439,6 +450,8 @@ export default function LawnBookings() {
         return <Badge className="bg-warning text-warning-foreground">Half Paid</Badge>;
       case "UNPAID":
         return <Badge variant="destructive">Unpaid</Badge>;
+      case "TO_BILL":
+        return <Badge className="bg-blue-600 text-white">To Bill</Badge>;
       default:
         return <Badge>{status}</Badge>;
     }
@@ -565,28 +578,6 @@ export default function LawnBookings() {
     createMutation.mutate(payload);
   };
 
-  const handleUpdateBooking = () => {
-    if (!editBooking) return;
-
-    const payload = {
-      id: editBooking.id.toString(),
-      category: "Lawn",
-      membershipNo: editBooking.member?.Membership_No || "",
-      entityId: editBooking.lawn?.id || "",
-      bookingDate: editBooking.bookingDate,
-      totalPrice: editBooking.totalPrice.toString(),
-      paymentStatus: editBooking.paymentStatus,
-      numberOfGuests: editBooking.guestsCount,
-      paidAmount: editBooking.paidAmount || 0,
-      pendingAmount: editBooking.remainingAmount || 0,
-      pricingType: editBooking.pricingType || "member",
-      paymentMode: "CASH",
-      eventTime: editBooking.bookingTime || "NIGHT",
-      eventType: editBooking.eventType,
-    };
-
-    updateMutation.mutate(payload);
-  };
 
   const handleDeleteBooking = () => {
     if (cancelBooking) {
@@ -618,6 +609,7 @@ export default function LawnBookings() {
               <SelectItem value="PAID">Paid</SelectItem>
               <SelectItem value="HALF_PAID">Half Paid</SelectItem>
               <SelectItem value="UNPAID">Unpaid</SelectItem>
+              <SelectItem value="TO_BILL">To Bill</SelectItem>
             </SelectContent>
           </Select>
           <Dialog open={isAddOpen} onOpenChange={(open) => {
@@ -1170,7 +1162,6 @@ export default function LawnBookings() {
                     totalPrice: newPrice,
                     paidAmount: newPaidAmount,
                     pendingAmount: newPendingAmount,
-                    remainingAmount: newPendingAmount,
                     paymentStatus: newPaymentStatus,
                     lawnId: lawnId,
                     entityId: lawnId
@@ -1323,7 +1314,6 @@ export default function LawnBookings() {
                     totalPrice: newPrice,
                     paidAmount: newPaidAmount,
                     pendingAmount: newPendingAmount,
-                    remainingAmount: newPendingAmount,
                     paymentStatus: newPaymentStatus
                   } : null);
                 }}
@@ -1406,7 +1396,7 @@ export default function LawnBookings() {
                 paymentStatus: editBooking?.paymentStatus || "UNPAID",
                 totalPrice: editBooking?.totalPrice || 0,
                 paidAmount: editBooking?.paidAmount || 0,
-                pendingAmount: editBooking?.remainingAmount || 0
+                pendingAmount: editBooking?.pendingAmount || 0
               }}
               onChange={(field, value) => {
                 setEditBooking(prev => {
@@ -1419,21 +1409,21 @@ export default function LawnBookings() {
                     // Recalculate amounts when payment status changes
                     if (value === "PAID") {
                       updated.paidAmount = updated.totalPrice;
-                      updated.remainingAmount = 0;
+                      updated.pendingAmount = 0;
                     } else if (value === "UNPAID") {
                       updated.paidAmount = 0;
-                      updated.remainingAmount = updated.totalPrice;
+                      updated.pendingAmount = updated.totalPrice;
                     } else if (value === "HALF_PAID") {
                       // Keep existing paid amount or set to half
                       const currentPaid = updated.paidAmount || 0;
                       if (currentPaid === 0) {
                         updated.paidAmount = updated.totalPrice / 2;
-                        updated.remainingAmount = updated.totalPrice / 2;
+                        updated.pendingAmount = updated.totalPrice / 2;
                       }
                     }
                   } else if (field === "paidAmount") {
                     updated.paidAmount = value;
-                    updated.remainingAmount = updated.totalPrice - value;
+                    updated.pendingAmount = updated.totalPrice - value;
                   }
 
                   return updated;
@@ -1447,24 +1437,44 @@ export default function LawnBookings() {
               onClick={() => {
                 if (!editBooking) return;
 
+                // VALIDATION
+                if (!editBooking.eventType) {
+                  toast({ title: "Event type is required", variant: "destructive" });
+                  return;
+                }
+                if (!editBooking.guestsCount || editBooking.guestsCount < 1) {
+                  toast({ title: "Guest count must be at least 1", variant: "destructive" });
+                  return;
+                }
+                if (!editBooking.bookingDate) {
+                  toast({ title: "Booking date is required", variant: "destructive" });
+                  return;
+                }
+
+                const membershipNo = editBooking.member?.Membership_No || editBooking.membershipNo || "";
+                if (!membershipNo) {
+                  toast({ title: "Membership number is missing", variant: "destructive" });
+                  return;
+                }
+
                 const payload = {
                   id: editBooking.id.toString(),
                   category: "Lawn",
-                  membershipNo: editBooking.member?.Membership_No || editBooking.membershipNo || "", // Fixed: include membership number
-                  entityId: editBooking.lawn?.id || "",
+                  membershipNo: membershipNo,
+                  entityId: editBooking.lawn?.id?.toString() || editBooking.entityId || "",
                   bookingDate: editBooking.bookingDate,
                   totalPrice: editBooking.totalPrice.toString(),
                   paymentStatus: editBooking.paymentStatus,
                   numberOfGuests: editBooking.guestsCount,
                   paidAmount: editBooking.paidAmount || 0,
-                  pendingAmount: editBooking.remainingAmount || 0,
+                  pendingAmount: editBooking.pendingAmount || 0,
                   pricingType: editBooking.pricingType || "member",
                   paymentMode: "CASH",
                   eventTime: editBooking.bookingTime || "NIGHT",
                   eventType: editBooking.eventType,
-                  paidBy: editBooking.paidBy,
+                  paidBy: editBooking.paidBy || "MEMBER",
                   guestName: editBooking.guestName,
-                  guestContact: editBooking.guestContact
+                  guestContact: editBooking.guestContact?.toString(),
                 };
 
                 updateMutation.mutate(payload);

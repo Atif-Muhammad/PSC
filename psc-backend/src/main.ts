@@ -23,6 +23,7 @@ async function bootstrap() {
     credentials: true,
   });
   app.use(cookieParser());
+  app.setGlobalPrefix('api');
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

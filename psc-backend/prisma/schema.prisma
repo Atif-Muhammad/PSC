@@ -79,6 +79,7 @@ enum PaymentStatus {
   UNPAID
   HALF_PAID
   PAID
+  TO_BILL
 }
 
 enum PaidBy {

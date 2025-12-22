@@ -185,7 +185,14 @@ export class BookingService {
           'Paid amount must be >0 and <total for half-paid',
         );
       owed = total - paid;
+    } else if (paymentStatus === (PaymentStatus.TO_BILL as unknown)) {
+      paid = Number(paidAmount) || 0;
+      owed = total - paid; // We calculate owed here, but we will move it to Balance
     }
+
+    const isToBill = paymentStatus === (PaymentStatus.TO_BILL as unknown);
+    const amountToBalance = isToBill ? owed : 0;
+    const finalOwed = isToBill ? 0 : owed;
 
     // ── CREATE BOOKING ───────────────────────────────────────
     const booking = await this.prismaService.roomBooking.create({
@@ -198,7 +205,7 @@ export class BookingService {
         paymentStatus: paymentStatus as unknown as PaymentStatus,
         pricingType,
         paidAmount: paid,
-        pendingAmount: owed,
+        pendingAmount: finalOwed,
         numberOfAdults,
         numberOfChildren,
         specialRequests,
@@ -217,16 +224,23 @@ export class BookingService {
     }
 
     // ── UPDATE MEMBER LEDGER ─────────────────────────────────
+
+
     await this.prismaService.member.update({
       where: { Membership_No: membershipNo },
       data: {
         totalBookings: { increment: 1 },
         lastBookingDate: now,
         bookingAmountPaid: { increment: Math.round(Number(paid)) },
-        bookingAmountDue: { increment: Math.round(Number(owed)) },
-        bookingBalance: { increment: Math.round(Number(paid) - Number(owed)) },
+        bookingAmountDue: { increment: Math.round(Number(finalOwed)) },
+        bookingBalance: { increment: Math.round(Number(paid) - Number(finalOwed)) },
+        Balance: { increment: Math.round(amountToBalance) },
+        drAmount: { increment: Math.round(amountToBalance) },
       },
     });
+
+    // We also need to set pendingAmount to 0 in the booking record if it's TO_BILL
+    // Handled in creation above
 
     // ── CREATE PAYMENT VOUCHER ───────────────────────────────
     if (paid > 0) {
@@ -296,8 +310,8 @@ export class BookingService {
 
     if (newCheckIn >= newCheckOut)
       throw new ConflictException('Check-in must be before check-out');
-    if (normalizedCheckIn < now)
-      throw new ConflictException('Check-in date cannot be in the past');
+    // if (normalizedCheckIn < now)
+    //   throw new ConflictException('Check-in date cannot be in the past');
 
     // ── GUEST COUNT VALIDATION ──────────────────────────────
     const newAdults = numberOfAdults ?? booking.numberOfAdults;
@@ -328,7 +342,7 @@ export class BookingService {
     });
 
     if (!room) throw new NotFoundException('Room not found');
-    if (!room.isActive) throw new ConflictException('Room not active');
+    // if (!room.isActive) throw new ConflictException('Room not active');
 
     // Check holdings
     const roomHold = await this.prismaService.roomHoldings.findFirst({
@@ -377,6 +391,7 @@ export class BookingService {
     let newPaymentStatus =
       (paymentStatus as unknown as PaymentStatus) ?? oldStatus;
     let refundAmount = 0;
+    let amountToBalance = 0;
 
     // Scenario 1: Charges decreased
     if (newTotal < oldPaid && oldStatus === PaymentStatus.PAID) {
@@ -459,7 +474,18 @@ export class BookingService {
       ) {
         newPaid = 0;
         newOwed = newTotal;
+      } else if (
+        (paymentStatus as unknown as PaymentStatus) === PaymentStatus.TO_BILL
+      ) {
+        newPaid = Number(paidAmount) || oldPaid;
+        newOwed = newTotal - newPaid;
       }
+    }
+
+    const isToBill = newPaymentStatus === PaymentStatus.TO_BILL;
+    if (isToBill) {
+      amountToBalance = newOwed;
+      newOwed = 0;
     }
 
     const paidDiff = newPaid - oldPaid;
@@ -515,7 +541,7 @@ export class BookingService {
     );
 
     // ── UPDATE MEMBER LEDGER ─────────────────────────────────
-    if (paidDiff !== 0 || owedDiff !== 0) {
+    if (paidDiff !== 0 || owedDiff !== 0 || amountToBalance !== 0) {
       await this.prismaService.member.update({
         where: { Membership_No: membershipNo ?? booking.Membership_No },
         data: {
@@ -523,6 +549,8 @@ export class BookingService {
           bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
           bookingBalance: { increment: Math.round(Number(paidDiff) - Number(owedDiff)) },
           lastBookingDate: new Date(),
+          Balance: { increment: Math.round(amountToBalance) },
+          drAmount: { increment: Math.round(amountToBalance) },
         },
       });
     }
@@ -1230,14 +1258,25 @@ export class BookingService {
       if ((paymentStatus as unknown as PaymentStatus) === 'PAID') {
         paid = total;
         owed = 0;
-      } else if ((paymentStatus as unknown as PaymentStatus) === 'HALF_PAID') {
+      } else if (
+        (paymentStatus as unknown as PaymentStatus) === 'HALF_PAID'
+      ) {
         paid = Number(paidAmount) || 0;
         if (paid <= 0 || paid >= total)
           throw new ConflictException(
             'For half-paid: paid amount must be >0 and <total',
           );
         owed = total - paid;
+      } else if (
+        (paymentStatus as unknown as PaymentStatus) === 'TO_BILL'
+      ) {
+        paid = Number(paidAmount) || 0;
+        owed = total - paid;
       }
+
+      const isToBill = (paymentStatus as unknown as PaymentStatus) === 'TO_BILL';
+      const finalOwed = isToBill ? 0 : owed;
+      const amountToBalance = isToBill ? owed : 0;
 
       // ── CREATE BOOKING ─────────────────────────────────────
       const booked = await prisma.hallBooking.create({
@@ -1250,7 +1289,7 @@ export class BookingService {
           pricingType,
           numberOfGuests: Number(numberOfGuests!),
           paidAmount: paid,
-          pendingAmount: owed,
+          pendingAmount: finalOwed,
           eventType,
           bookingTime: normalizedEventTime,
           paidBy,
@@ -1275,8 +1314,10 @@ export class BookingService {
           totalBookings: { increment: 1 },
           lastBookingDate: new Date(),
           bookingAmountPaid: { increment: Math.round(Number(paid)) },
-          bookingAmountDue: { increment: Math.round(Number(owed)) },
-          bookingBalance: { increment: Math.round(Number(paid) - Number(owed)) },
+          bookingAmountDue: { increment: Math.round(Number(finalOwed)) },
+          bookingBalance: { increment: Math.round(Number(paid) - Number(finalOwed)) },
+          Balance: { increment: Math.round(amountToBalance) },
+          drAmount: { increment: Math.round(amountToBalance) },
         },
       });
 
@@ -1412,6 +1453,7 @@ export class BookingService {
         newOwed = total - oldPaid;
       let newPaymentStatus = (paymentStatus as any) ?? oldStatus;
       let refundAmount = 0;
+      let amountToBalance = 0;
 
       // Reuse payment scenario logic from room bookings
       if (
@@ -1476,7 +1518,16 @@ export class BookingService {
         } else if ((paymentStatus as unknown as PaymentStatus) === 'UNPAID') {
           newPaid = 0;
           newOwed = total;
+        } else if ((paymentStatus as unknown as PaymentStatus) === 'TO_BILL') {
+          newPaid = Number(paidAmount) || oldPaid;
+          newOwed = total - newPaid;
         }
+      }
+
+      const isToBill = newPaymentStatus === 'TO_BILL';
+      if (isToBill) {
+        amountToBalance = newOwed;
+        newOwed = 0;
       }
 
       const paidDiff = newPaid - oldPaid;
@@ -1551,6 +1602,8 @@ export class BookingService {
             bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
             bookingBalance: { increment: Math.round(Number(paidDiff) - Number(owedDiff)) },
             lastBookingDate: new Date(),
+            Balance: { increment: Math.round(amountToBalance) },
+            drAmount: { increment: Math.round(amountToBalance) },
           },
         });
       }
@@ -2166,6 +2219,9 @@ export class BookingService {
     let paid = 0,
       owed = total;
 
+    let amountToBalance = 0;
+    const isToBill = (paymentStatus as unknown as string) === 'TO_BILL';
+
     if ((paymentStatus as unknown as PaymentStatus) === 'PAID') {
       paid = total;
       owed = 0;
@@ -2176,6 +2232,11 @@ export class BookingService {
           'For half-paid: paid amount must be >0 and <total',
         );
       owed = total - paid;
+    }
+
+    if (isToBill) {
+      amountToBalance = owed;
+      owed = 0;
     }
 
     // ── CREATE BOOKING ───────────────────────────────────────
@@ -2216,6 +2277,8 @@ export class BookingService {
         bookingAmountPaid: { increment: Math.round(Number(paid)) },
         bookingAmountDue: { increment: Math.round(Number(owed)) },
         bookingBalance: { increment: Math.round(Number(paid) - Number(owed)) },
+        Balance: { increment: Math.round(amountToBalance) },
+        drAmount: { increment: Math.round(amountToBalance) },
       },
     });
 
@@ -2410,7 +2473,16 @@ export class BookingService {
         } else if ((paymentStatus as unknown as PaymentStatus) === 'UNPAID') {
           newPaid = 0;
           newOwed = newTotal;
+        } else if ((paymentStatus as unknown as string) === 'TO_BILL') {
+          newPaid = Number(paidAmount) || oldPaid;
+          newOwed = newTotal - newPaid;
         }
+      }
+
+      let amountToBalance = 0;
+      if (newPaymentStatus === 'TO_BILL') {
+        amountToBalance = newOwed;
+        newOwed = 0;
       }
 
       const paidDiff = newPaid - oldPaid;
@@ -2462,13 +2534,17 @@ export class BookingService {
       }
 
       // ── UPDATE MEMBER LEDGER ───────────────────────────────
-      if (paidDiff !== 0 || owedDiff !== 0) {
+      if (paidDiff !== 0 || owedDiff !== 0 || amountToBalance !== 0) {
         await prisma.member.update({
           where: { Membership_No: membershipNo },
           data: {
             bookingAmountPaid: { increment: Math.round(Number(paidDiff)) },
             bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
-            bookingBalance: { increment: Math.round(Number(paidDiff) - Number(owedDiff)) },
+            bookingBalance: {
+              increment: Math.round(Number(paidDiff) - Number(owedDiff)),
+            },
+            Balance: { increment: Math.round(Number(amountToBalance)) },
+            drAmount: { increment: Math.round(Number(amountToBalance)) },
             lastBookingDate: new Date(),
           },
         });
@@ -3083,10 +3159,12 @@ export class BookingService {
       );
     }
 
-    // 4. Calculate Amounts
     const total = Number(totalPrice);
     let paid = 0;
     let owed = total;
+
+    let amountToBalance = 0;
+    const isToBill = (paymentStatus as unknown as string) === 'TO_BILL';
 
     if (paymentStatus === (PaymentStatus.PAID as unknown)) {
       paid = total;
@@ -3102,6 +3180,11 @@ export class BookingService {
           'Paid amount must be less than total for half-paid status',
         );
       owed = total - paid;
+    } else if (isToBill) {
+      paid = 0; // or Number(paidAmount) || 0 if partial payment is allowed with TO_BILL
+      owed = total - paid;
+      amountToBalance = owed;
+      owed = 0;
     } else {
       paid = 0;
       owed = total;
@@ -3135,6 +3218,8 @@ export class BookingService {
         bookingAmountPaid: { increment: Math.round(Number(paid)) },
         bookingAmountDue: { increment: Math.round(Number(owed)) },
         bookingBalance: { increment: Math.round(Number(paid) - Number(owed)) },
+        Balance: { increment: Math.round(amountToBalance) },
+        drAmount: { increment: Math.round(amountToBalance) },
       },
     });
 
@@ -3408,6 +3493,13 @@ export class BookingService {
         newOwed = oldOwed;
       }
     }
+
+    let amountToBalance = 0;
+    if (newPaymentStatus === 'TO_BILL') {
+      amountToBalance = newOwed;
+      newOwed = 0;
+    }
+
     const paidDiff = newPaid - oldPaid;
     const owedDiff = newOwed - oldOwed;
     // 4. Update Booking
@@ -3424,10 +3516,10 @@ export class BookingService {
         pricingType: pricingType ?? booking.pricingType,
         paidAmount: newPaid,
         pendingAmount: newOwed,
+        refundAmount,
         paidBy,
         guestName,
         guestContact,
-        refundAmount: refundAmount,
         refundReturned: false,
       },
     });
@@ -3439,6 +3531,8 @@ export class BookingService {
           bookingAmountPaid: { increment: Math.round(Number(paidDiff)) },
           bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
           bookingBalance: { increment: Math.round(Number(paidDiff) - Number(owedDiff)) },
+          Balance: { increment: Math.round(amountToBalance) },
+          drAmount: { increment: Math.round(amountToBalance) },
         },
       });
     }
@@ -3981,6 +4075,12 @@ export class BookingService {
       }
     }
 
+    let amountToBalance = 0;
+    if (newPaymentStatus === 'TO_BILL') {
+      amountToBalance = newOwed;
+      newOwed = 0;
+    }
+
     const paidDiff = newPaid - oldPaid;
     const owedDiff = newOwed - oldOwed;
 
@@ -3998,10 +4098,10 @@ export class BookingService {
         pricingType,
         paidAmount: newPaid,
         pendingAmount: newOwed,
+        refundAmount,
         paidBy,
         guestName,
         guestContact: guestContact?.toString(),
-        refundAmount,
         refundReturned: false,
       },
     });
@@ -4032,13 +4132,17 @@ export class BookingService {
     }
 
     // Update member ledger
-    if (paidDiff !== 0 || owedDiff !== 0) {
+    if (paidDiff !== 0 || owedDiff !== 0 || amountToBalance !== 0) {
       await this.prismaService.member.update({
         where: { Membership_No: membershipNo },
         data: {
           bookingAmountPaid: { increment: Math.round(Number(paidDiff)) },
           bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
-          bookingBalance: { increment: Math.round(Number(paidDiff) - Number(owedDiff)) },
+          bookingBalance: {
+            increment: Math.round(Number(paidDiff) - Number(owedDiff)),
+          },
+          Balance: { increment: Math.round(Number(amountToBalance)) },
+          drAmount: { increment: Math.round(Number(amountToBalance)) },
           lastBookingDate: new Date(),
         },
       });

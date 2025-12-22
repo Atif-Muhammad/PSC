@@ -1,5 +1,6 @@
 import axios from "axios";
-const base_url = "http://localhost:3000";
+const base_url = "http://localhost:3000/api";
+// const base_url = "https://193.203.169.122/api";
 // const base_url = "https://psc-production.up.railway.app:3000";
 
 export const authAdmin = async (data: any): Promise<any> => {
@@ -1547,5 +1548,33 @@ export const sendNotification = async (payload: any): Promise<any> => {
       "Something went wrong";
 
     throw { message, status: error.response?.status || 500 };
+  }
+};
+
+// Accounts
+export const getAccountMembers = async (): Promise<any> => {
+  try {
+    const response = await axios.get(`${base_url}/member/get/members?page=1&limit=1000`, { withCredentials: true });
+    return response.data;
+  } catch (error: any) {
+    throw { message: error.response?.data?.message || "Error fetching members", status: error.response?.status || 500 };
+  }
+};
+
+export const getMemberVouchers = async (membershipNo: string): Promise<any> => {
+  try {
+    const response = await axios.get(`${base_url}/payment/member/vouchers?membershipNo=${membershipNo}`, { withCredentials: true });
+    return response.data;
+  } catch (error: any) {
+    throw { message: error.response?.data?.message || "Error fetching vouchers", status: error.response?.status || 500 };
+  }
+};
+
+export const getMemberBookings = async (membershipNo: string): Promise<any> => {
+  try {
+    const response = await axios.get(`${base_url}/booking/member/bookings?membershipNo=${membershipNo}`, { withCredentials: true });
+    return response.data;
+  } catch (error: any) {
+    throw { message: error.response?.data?.message || "Error fetching bookings", status: error.response?.status || 500 };
   }
 };

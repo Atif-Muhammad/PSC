@@ -1,7 +1,7 @@
 version: '1.0'
 
 services:
-  app:
+  backend:
     build: .
     container_name: psc-backend-app
     restart: always
@@ -10,7 +10,7 @@ services:
     depends_on:
       - mysql
     environment:
-      DATABASE_URL: "mysql://root:root@mysql:3306/mydb"
+      DATABASE_URL: "mysql://root:root@mysql:3306/psc_db"
     volumes:
       - .:/app
       - /app/node_modules
@@ -29,6 +29,16 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+
+  admin-portal:
+    build:
+      context: ./admin-portal
+    container_name: psc-admin-portal
+    restart: always
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
 
 volumes:
   mysql_data:

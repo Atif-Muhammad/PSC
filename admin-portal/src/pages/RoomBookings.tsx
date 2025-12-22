@@ -695,6 +695,8 @@ export default function RoomBookings() {
         return <Badge className="bg-yellow-600 text-white">Half Paid</Badge>;
       case "UNPAID":
         return <Badge variant="destructive">Unpaid</Badge>;
+      case "TO_BILL":
+        return <Badge className="bg-blue-600 text-white">To Bill</Badge>;
       default:
         return <Badge>{status}</Badge>;
     }
@@ -733,6 +735,7 @@ export default function RoomBookings() {
               <SelectItem value="PAID">Paid</SelectItem>
               <SelectItem value="HALF_PAID">Half Paid</SelectItem>
               <SelectItem value="UNPAID">Unpaid</SelectItem>
+              <SelectItem value="TO_BILL">To Bill</SelectItem>
             </SelectContent>
           </Select>
           <Dialog
