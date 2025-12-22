@@ -14,6 +14,7 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
+    user: "${UID}:${GID}"
     command: ["npm", "run", "start"]
 
   mysql:
@@ -29,6 +30,7 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+    user: "1000:1000"
 
   admin-portal:
     build:
@@ -39,6 +41,7 @@ services:
       - "5173:5173"
     depends_on:
       - backend
+    user: "${UID}:${GID}"
 
 volumes:
   mysql_data:
