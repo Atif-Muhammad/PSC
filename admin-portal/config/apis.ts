@@ -1,6 +1,6 @@
 import axios from "axios";
-const base_url = "http://localhost:3000/api";
-// const base_url = "https://193.203.169.122/api";
+// const base_url = "http://localhost:3000/api";
+const base_url = "https://193.203.169.122/api";
 // const base_url = "https://psc-production.up.railway.app:3000";
 
 export const authAdmin = async (data: any): Promise<any> => {
