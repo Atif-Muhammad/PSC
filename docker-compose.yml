@@ -24,7 +24,18 @@ services:
       mysql:
         condition: service_healthy
     environment:
-      DATABASE_URL: mysql://root:root@mysql:3306/psc_db
+      NODE_ENV: "development"
+      DATABASE_URL: "mysql://root:root@mysql:3306/psc_db"
+      JWT_ACCESS_SECRET: "asdaskdpanqweqejlsadnasnd"
+      JWT_REFRESH_SECRET: "09190199219jjkdjasjdnasnd"
+      NODEMAILER_HOST: "smtp.hostinger.com"
+      NODEMAILER_PORT: 465
+      NODEMAILER_USER: "info@codeclub.tech"
+      NODEMAILER_PASS: "Affan@1234!"
+      CLOUDINARY_URL: "cloudinary://369676299629912:q7KnhQPgAOSx1kwhdMh1iYw0wrA@dtqdpntlc"
+      CLOUD_NAME: "dtqdpntlc"
+      CLOUDINARY_API_KEY: "369676299629912"
+      CLOUDINARY_API_SECRET: "q7KnhQPgAOSx1kwhdMh1iYw0wrA"
 
   admin-portal:
     build:
