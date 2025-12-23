@@ -74,14 +74,18 @@ export class AuthController {
         if (clientType === 'web') {
             res.cookie('access_token', access_token, {
                 httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
-                sameSite: true,
+                // secure: process.env.NODE_ENV === 'production',
+                // sameSite: true,
+                sameSite: 'lax',
+                secure: false,
                 maxAge: 24 * 60 * 60 * 1000, // 1 day
             });
             res.cookie('refresh_token', refresh_token, {
                 httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
-                sameSite: true,
+                sameSite: 'lax',
+                secure: false,
+                // secure: process.env.NODE_ENV === 'production',
+                // sameSite: true,
                 maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
             });
             return res.status(200).json({ message: 'Login successful' });
