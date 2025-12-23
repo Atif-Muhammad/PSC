@@ -32,7 +32,7 @@ services:
     container_name: psc-admin-portal
     restart: always
     ports:
-      - "8080:5173"
+      - "5173:5173"
     depends_on:
       - backend
 
