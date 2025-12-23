@@ -10,6 +10,7 @@ RUN npm ci
 
 COPY . .
 
+# Build project and generate Prisma client for production stage
 RUN npx prisma generate
 RUN npm run build
 
@@ -26,6 +27,9 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/prisma ./prisma
+COPY entrypoint.sh ./entrypoint.sh
 
 EXPOSE 3000
-CMD ["node", "dist/main.js"]
+
+# Use entrypoint to run migrations and start app
+ENTRYPOINT ["./entrypoint.sh"]
