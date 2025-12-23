@@ -25,11 +25,11 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
-COPY entrypoint.sh ./entrypoint.sh
+COPY --from=builder /app/package.json ./package.json
 
 EXPOSE 3000
 
-# Use entrypoint to run migrations and start app
-ENTRYPOINT ["./entrypoint.sh"]
+CMD ["sh", "-c", "npx prisma migrate deploy"]
+CMD ["node", "dist/main.js"]
