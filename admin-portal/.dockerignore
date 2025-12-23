@@ -6,5 +6,4 @@ README.md
 Dockerfile
 nginx.conf
 .dockerignore
-package-lock.json
 bun.lockb
