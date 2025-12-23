@@ -15,7 +15,7 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: ./psc-backend
     container_name: psc-backend-app
     restart: always
     ports:
