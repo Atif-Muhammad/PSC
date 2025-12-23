@@ -1,15 +1,6 @@
-services:
-  backend:
-    build: ./psc-backend
-    container_name: psc-backend-app
-    restart: always
-    ports:
-      - "3000:3000"
-    depends_on:
-      - mysql
-    environment:
-      DATABASE_URL: "mysql://root:root@mysql:3306/psc_db"
+version: "3.9"
 
+services:
   mysql:
     image: mysql:8.0
     container_name: mysql-db
@@ -17,12 +8,25 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: psc_db
-      MYSQL_USER: root
-      MYSQL_PASSWORD: root
-    ports:
-      - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    container_name: psc-backend-app
+    restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: mysql://root:root@mysql:3306/psc_db
 
   admin-portal:
     build:
@@ -30,7 +34,7 @@ services:
     container_name: psc-admin-portal
     restart: always
     ports:
-      - "5173:5173"
+      - "5173:80"
     depends_on:
       - backend
 
