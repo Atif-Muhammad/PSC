@@ -6,6 +6,7 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: psc_db
+    command: --lower_case_table_names=1
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
