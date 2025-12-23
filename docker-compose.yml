@@ -1,6 +1,6 @@
 services:
   backend:
-    build: .
+    build: ./psc-backend
     container_name: psc-backend-app
     restart: always
     ports:
