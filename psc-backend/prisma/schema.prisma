@@ -529,6 +529,22 @@ model Sport {
   activity    String  @db.VarChar(100)
   description String? @db.VarChar(300)
   isActive    Boolean @default(true)
+  images      Json    @default("[]") // Array of image URLs, max 5
+
+  // Timing for Gents: JSON object with each day of the week
+  // Format: { "monday": { "open": "09:00 AM", "close": "05:00 PM", "isClosed": false }, ... }
+  timing Json? @default("{}")
+
+  // Timing for Ladies: JSON object with each day of the week
+  timingLadies Json? @default("{}")
+
+  // Dress Code (rich text)
+  dressCodeDos   String? @db.LongText
+  dressCodeDonts String? @db.LongText
+
+  // General Do's and Don'ts (rich text)
+  dos   String? @db.LongText
+  donts String? @db.LongText
 
   subscriptions SportSubscription[]
 

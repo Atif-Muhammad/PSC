@@ -1,6 +1,6 @@
 import axios from "axios";
-const base_url = "http://localhost:3000/api";
-// const base_url = "http://193.203.169.122:8080/api";
+// const base_url = "http://localhost:3000/api";
+const base_url = "http://193.203.169.122:8080/api";
 
 export const authAdmin = async (data: any): Promise<any> => {
   try {
@@ -1056,10 +1056,11 @@ export const deletePhotoshoot = async (id: any): Promise<any> => {
 };
 
 // sports
-export const createSport = async (data: any): Promise<any> => {
+export const createSport = async (data: FormData): Promise<any> => {
   try {
     const response = await axios.post(`${base_url}/sport/create/sport`, data, {
       withCredentials: true,
+      headers: { 'Content-Type': 'multipart/form-data' },
     });
     return response;
   } catch (error: any) {
@@ -1121,10 +1122,11 @@ export const getSports = async (): Promise<any> => {
   }
 };
 
-export const updateSport = async (data: any): Promise<any> => {
+export const updateSport = async (id: number, data: FormData): Promise<any> => {
   try {
-    const response = await axios.patch(`${base_url}/sport/update/sport`, data, {
+    const response = await axios.patch(`${base_url}/sport/update/sport?id=${id}`, data, {
       withCredentials: true,
+      headers: { 'Content-Type': 'multipart/form-data' },
     });
     return response;
   } catch (error: any) {
