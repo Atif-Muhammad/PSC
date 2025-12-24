@@ -11,6 +11,7 @@ async function bootstrap() {
         'https://psc.up.railway.app',
         'http://localhost:5173',
         'https://193.203.169.122'
+        'http://193.203.169.122'
       ];
 
       if (!origin || allowed.includes(origin)) {
