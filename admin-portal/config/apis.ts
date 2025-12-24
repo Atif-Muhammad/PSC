@@ -1,6 +1,6 @@
 import axios from "axios";
-// const base_url = "http://localhost:3000/api";
-const base_url = "http://193.203.169.122:8080/api";
+const base_url = "http://localhost:3000/api";
+// const base_url = "http://193.203.169.122:8080/api";
 
 export const authAdmin = async (data: any): Promise<any> => {
   try {
@@ -948,6 +948,41 @@ export const deleteLawn = async (id: string): Promise<any> => {
       }
     );
     return response;
+  } catch (error: any) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+// reserve lawn
+export const reserveLawn = async (
+  lawnIds: number[],
+  reserve: boolean,
+  timeSlot: string,
+  reserveFrom?: string,
+  reserveTo?: string,
+): Promise<any> => {
+  try {
+    const payload: any = { lawnIds, reserve, timeSlot };
+
+    if (reserveFrom && reserveTo) {
+      payload.reserveFrom = reserveFrom;
+      payload.reserveTo = reserveTo;
+    } else if (reserve) {
+      throw new Error("Reservation dates are required when reserving lawns");
+    }
+
+    const response = await axios.patch(
+      `${base_url}/lawn/reserve/lawns`,
+      payload,
+      { withCredentials: true }
+    );
+    return response.data;
   } catch (error: any) {
     const message =
       error.response?.data?.message ||
