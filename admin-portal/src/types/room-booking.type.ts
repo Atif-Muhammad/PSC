@@ -29,8 +29,8 @@ export interface Room {
   reservedFrom?: string;
   reservedTo?: string;
   outOfOrders?: any[]
-  reservations?: [];
-  bookings?: []
+  reservations?: any[];
+  bookings?: any[];
   status?: "AVAILABLE" | "OUT_OF_ORDER" | "RESERVED";
 }
 

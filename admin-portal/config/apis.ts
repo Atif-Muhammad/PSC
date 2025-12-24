@@ -446,10 +446,15 @@ export const reserveRoom = async (
   roomIds: string[],
   reserve: boolean,
   reserveFrom?: string,
-  reserveTo?: string
+  reserveTo?: string,
+  remarks?: string
 ): Promise<any> => {
   try {
     const payload: any = { roomIds, reserve };
+
+    if (remarks) {
+      payload.remarks = remarks;
+    }
 
     // Always include reserveFrom and reserveTo if they are provided
     // The backend needs them to identify which specific reservation to remove
@@ -570,6 +575,28 @@ export const deleteRoom = async (roomId: string): Promise<any> => {
     const response = await axios.delete(`${base_url}/room/delete/room?id=${roomId}`, {
       withCredentials: true,
     });
+    return response.data;
+  } catch (error: any) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getRoomLogs = async (
+  roomId: number | string,
+  from: string,
+  to: string
+): Promise<any> => {
+  try {
+    const response = await axios.get(
+      `${base_url}/room/logs?roomId=${roomId}&from=${from}&to=${to}`,
+      { withCredentials: true }
+    );
     return response.data;
   } catch (error: any) {
     const message =

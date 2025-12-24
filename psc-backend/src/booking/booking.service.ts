@@ -114,6 +114,14 @@ export class BookingService {
         'Maximum room capacity exceeded (6 guests total)',
       );
 
+    if (pricingType === 'guest') {
+      if (!guestName || !guestContact) {
+        throw new ConflictException(
+          'Guest name and contact are required for guest pricing',
+        );
+      }
+    }
+
     // ── ROOM VALIDATION ──────────────────────────────────────
     const room = await this.prismaService.room.findFirst({
       where: { id: Number(entityId) },
@@ -320,6 +328,17 @@ export class BookingService {
       throw new ConflictException('At least one adult is required');
     if (newAdults + newChildren > 6)
       throw new ConflictException('Max capacity: 6 guests');
+
+    const newPricingType = pricingType ?? booking.pricingType;
+    if (newPricingType === 'guest') {
+      const newGuestName = guestName ?? booking.guestName;
+      const newGuestContact = guestContact ?? booking.guestContact;
+      if (!newGuestName || !newGuestContact) {
+        throw new ConflictException(
+          'Guest name and contact are required for guest pricing',
+        );
+      }
+    }
 
     // ── ROOM VALIDATION ─────────────────────────────────────
     const newRoomId = entityId ? Number(entityId) : booking.roomId;
@@ -555,24 +574,25 @@ export class BookingService {
       });
     }
 
-    // ── CREATE FINAL PAYMENT VOUCHER ─────────────────────────
-    if (
-      paidDiff > 0 &&
-      oldOwed > 0 &&
-      newPaymentStatus === PaymentStatus.PAID
-    ) {
+    // ── CREATE PAYMENT VOUCHER ──────────────────────────────
+    if (paidDiff > 0) {
+      const voucherType =
+        newPaymentStatus === PaymentStatus.PAID
+          ? VoucherType.FULL_PAYMENT
+          : VoucherType.HALF_PAYMENT;
+
       await this.prismaService.paymentVoucher.create({
         data: {
           booking_type: 'ROOM',
           booking_id: updated.id,
           membership_no: membershipNo ?? booking.Membership_No,
-          amount: oldOwed,
+          amount: paidDiff,
           payment_mode:
             (paymentMode as unknown as PaymentMode) ?? PaymentMode.CASH,
-          voucher_type: VoucherType.FULL_PAYMENT,
+          voucher_type: voucherType,
           status: VoucherStatus.CONFIRMED,
           issued_by: 'admin',
-          remarks: `Room #${room.roomNumber} | Final payment | ${formatPakistanDate(newCheckIn)} → ${formatPakistanDate(newCheckOut)}`,
+          remarks: `Room #${room.roomNumber} | Payment Update | ${formatPakistanDate(newCheckIn)} → ${formatPakistanDate(newCheckOut)}`,
         },
       });
     }
@@ -732,6 +752,14 @@ export class BookingService {
     if (numberOfAdults < 1)
       throw new ConflictException('At least one adult required');
 
+    if (pricingType === 'guest') {
+      if (!guestName || !guestContact) {
+        throw new ConflictException(
+          'Guest name and contact are required for guest pricing',
+        );
+      }
+    }
+
     const member = await this.prismaService.member.findUnique({
       where: { Membership_No: membershipNo.toString() },
     });
@@ -853,7 +881,7 @@ export class BookingService {
             paymentStatus === 'PAID'
               ? VoucherType.FULL_PAYMENT
               : VoucherType.HALF_PAYMENT;
-          await this.prismaService.paymentVoucher.create({
+          await prisma.paymentVoucher.create({
             data: {
               booking_type: 'ROOM',
               booking_id: booking.id,
@@ -1092,6 +1120,27 @@ export class BookingService {
           bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
           bookingBalance: { increment: Math.round(Number(paidDiff) - Number(owedDiff)) },
           lastBookingDate: new Date(),
+        },
+      });
+    }
+
+    // ── CREATE PAYMENT VOUCHER ─────────────────────────────
+    if (paidDiff > 0) {
+      const voucherType =
+        newPaymentStatus === 'PAID'
+          ? VoucherType.FULL_PAYMENT
+          : VoucherType.HALF_PAYMENT;
+      await this.prismaService.paymentVoucher.create({
+        data: {
+          booking_type: 'ROOM',
+          booking_id: updated.id,
+          membership_no: membershipNo.toString(),
+          amount: paidDiff,
+          payment_mode: paymentMode as unknown as PaymentMode,
+          voucher_type: voucherType,
+          status: VoucherStatus.CONFIRMED,
+          issued_by: 'member',
+          remarks: `Room #${room.roomNumber} | ${formatPakistanDate(newCheckIn)} → ${formatPakistanDate(newCheckOut)}`,
         },
       });
     }
@@ -1608,23 +1657,23 @@ export class BookingService {
         });
       }
 
-      // ── CREATE FINAL PAYMENT VOUCHER ───────────────────────
-      if (
-        paidDiff > 0 &&
-        oldTotal - oldPaid > 0 &&
-        newPaymentStatus === 'PAID'
-      ) {
+      // ── CREATE PAYMENT VOUCHER ─────────────────────────────
+      if (paidDiff > 0) {
+        const voucherType =
+          newPaymentStatus === 'PAID'
+            ? VoucherType.FULL_PAYMENT
+            : VoucherType.HALF_PAYMENT;
         await prisma.paymentVoucher.create({
           data: {
             booking_type: 'HALL',
             booking_id: updated.id,
             membership_no: membershipNo,
-            amount: oldTotal - oldPaid,
+            amount: paidDiff,
             payment_mode: paymentMode as any,
-            voucher_type: VoucherType.FULL_PAYMENT,
+            voucher_type: voucherType,
             status: VoucherStatus.CONFIRMED,
             issued_by: 'admin',
-            remarks: `${hall.name} | Final payment | ${formatPakistanDate(booking)} (${eventType})`,
+            remarks: `${hall.name} | Payment Update | ${formatPakistanDate(booking)} (${eventType})`,
           },
         });
       }
@@ -2087,15 +2136,23 @@ export class BookingService {
         });
       }
 
-      // ── UPDATE MEMBER LEDGER ───────────────────────────────
-      if (paidDiff !== 0 || owedDiff !== 0) {
-        await prisma.member.update({
-          where: { Membership_No: membershipNo },
+      // ── CREATE PAYMENT VOUCHER ─────────────────────────────
+      if (paidDiff > 0) {
+        const voucherType =
+          newPaymentStatus === 'PAID'
+            ? VoucherType.FULL_PAYMENT
+            : VoucherType.HALF_PAYMENT;
+        await prisma.paymentVoucher.create({
           data: {
-            bookingAmountPaid: { increment: Math.round(Number(paidDiff)) },
-            bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
-            bookingBalance: { increment: Math.round(Number(paidDiff) - Number(owedDiff)) },
-            lastBookingDate: new Date(),
+            booking_type: 'HALL',
+            booking_id: updated.id,
+            membership_no: membershipNo,
+            amount: paidDiff,
+            payment_mode: paymentMode as any,
+            voucher_type: voucherType,
+            status: VoucherStatus.CONFIRMED,
+            issued_by: 'member',
+            remarks: `${hall.name} | ${formatPakistanDate(booking)} | ${eventType} (${normalizedEventTime})`,
           },
         });
       }
@@ -2531,32 +2588,37 @@ export class BookingService {
             remarks: `${formatPakistanDate(bookingDateObj)} - ${normalizedEventTime}${remarks ? ` | ${remarks}` : ''}`,
           },
         });
-      }
+        // ── CREATE PAYMENT VOUCHER ──────────────────────────────
+        if (paidDiff > 0) {
+          const voucherType =
+            newPaymentStatus === 'PAID'
+              ? VoucherType.FULL_PAYMENT
+              : VoucherType.HALF_PAYMENT;
 
-      // ── UPDATE MEMBER LEDGER ───────────────────────────────
-      if (paidDiff !== 0 || owedDiff !== 0 || amountToBalance !== 0) {
-        await prisma.member.update({
-          where: { Membership_No: membershipNo },
-          data: {
-            bookingAmountPaid: { increment: Math.round(Number(paidDiff)) },
-            bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
-            bookingBalance: {
-              increment: Math.round(Number(paidDiff) - Number(owedDiff)),
+          await prisma.paymentVoucher.create({
+            data: {
+              booking_type: 'LAWN',
+              booking_id: updated.id,
+              membership_no: membershipNo,
+              amount: paidDiff,
+              payment_mode: (paymentMode as any) ?? PaymentMode.CASH,
+              voucher_type: voucherType,
+              status: VoucherStatus.CONFIRMED,
+              issued_by: 'admin',
+              remarks: `${lawn.description} | Payment Update | ${formatPakistanDate(bookingDateObj)} (${normalizedEventTime})`,
             },
-            Balance: { increment: Math.round(Number(amountToBalance)) },
-            drAmount: { increment: Math.round(Number(amountToBalance)) },
-            lastBookingDate: new Date(),
-          },
-        });
-      }
+          });
+        }
 
-      return {
-        success: true,
-        message: 'Lawn booking updated',
-        booking: updated,
-        refundAmount,
-      };
-    });
+        return {
+          success: true,
+          message: 'Lawn booking updated',
+          booking: updated,
+          refundAmount,
+        };
+      }
+    })
+  
   }
 
   // Helper method for lawn voucher updates
@@ -3043,15 +3105,23 @@ export class BookingService {
       });
     }
 
-    // ── UPDATE MEMBER LEDGER ─────────────────────────────────
-    if (paidDiff !== 0 || owedDiff !== 0) {
-      await this.prismaService.member.update({
-        where: { Membership_No: membershipNo },
+    // ── CREATE PAYMENT VOUCHER ─────────────────────────────
+    if (paidDiff > 0) {
+      const voucherType =
+        newPaymentStatus === 'PAID'
+          ? VoucherType.FULL_PAYMENT
+          : VoucherType.HALF_PAYMENT;
+      await this.prismaService.paymentVoucher.create({
         data: {
-          bookingAmountPaid: { increment: Math.round(Number(paidDiff)) },
-          bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
-          bookingBalance: { increment: Math.round(Number(paidDiff) - Number(owedDiff)) },
-          lastBookingDate: new Date(),
+          booking_type: 'LAWN',
+          booking_id: updated.id,
+          membership_no: membershipNo,
+          amount: paidDiff,
+          payment_mode: paymentMode as any,
+          voucher_type: voucherType,
+          status: VoucherStatus.CONFIRMED,
+          issued_by: 'member',
+          remarks: `${lawn.description} | ${formatPakistanDate(booking)} | ${normalizedEventTime}`,
         },
       });
     }
@@ -4131,19 +4201,23 @@ export class BookingService {
       });
     }
 
-    // Update member ledger
-    if (paidDiff !== 0 || owedDiff !== 0 || amountToBalance !== 0) {
-      await this.prismaService.member.update({
-        where: { Membership_No: membershipNo },
+    // ── CREATE PAYMENT VOUCHER ─────────────────────────────
+    if (paidDiff > 0) {
+      const voucherType =
+        newPaymentStatus === 'PAID'
+          ? VoucherType.FULL_PAYMENT
+          : VoucherType.HALF_PAYMENT;
+      await this.prismaService.paymentVoucher.create({
         data: {
-          bookingAmountPaid: { increment: Math.round(Number(paidDiff)) },
-          bookingAmountDue: { increment: Math.round(Number(owedDiff)) },
-          bookingBalance: {
-            increment: Math.round(Number(paidDiff) - Number(owedDiff)),
-          },
-          Balance: { increment: Math.round(Number(amountToBalance)) },
-          drAmount: { increment: Math.round(Number(amountToBalance)) },
-          lastBookingDate: new Date(),
+          booking_type: 'PHOTOSHOOT',
+          booking_id: updated.id,
+          membership_no: membershipNo,
+          amount: paidDiff,
+          payment_mode: paymentMode as any,
+          voucher_type: voucherType,
+          status: VoucherStatus.CONFIRMED,
+          issued_by: 'member',
+          remarks: `Photoshoot: ${photoshoot.description} | ${formatPakistanDate(booking)}`,
         },
       });
     }
