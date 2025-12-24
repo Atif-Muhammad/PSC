@@ -75,19 +75,14 @@ export enum RequestStatus {
 }
 
 export class CreateAffiliatedClubRequestDto {
-    @IsString()
+    @IsNotEmpty({message: "membership number must be provided"})
+    @Type(()=> String)
     membershipNo: string;
-
-    @IsNumber()
+    
+    @IsNotEmpty({message: "affiliated club must be selected"})
+    @Type(()=> Number)
     affiliatedClubId: number;
 
-    @IsOptional()
-    @IsNumber()
-    guestCount?: number;
-
-    @IsOptional()
-    @IsString()
-    purpose?: string;
     @IsNotEmpty({ message: "requested date must be provided" })
     requestedDate: string
 }
