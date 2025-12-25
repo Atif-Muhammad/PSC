@@ -150,8 +150,8 @@ export function BookingDetailsCard({
   const nights = calculateNights(booking.checkIn, booking.checkOut);
   const hasGuestInfo = booking.guestName && booking.pricingType === "guest";
   const rooms = booking.rooms && booking.rooms.length > 0 ? booking.rooms : booking.room ? [booking.room] : [];
-  const roomNumbers = rooms.map(r => r.roomNumber).join(", ");
-  const roomType = rooms[0]?.roomType?.type || booking.room?.roomType?.type || "N/A";
+  const roomNumbers = rooms.map((r: any) => r.room?.roomNumber || r.roomNumber).join(", ");
+  const roomType = rooms[0]?.roomType?.type || rooms[0]?.room?.roomType?.type || booking.room?.roomType?.type || "N/A";
 
   return (
     <Card className={`overflow-hidden border shadow-sm hover:shadow-md transition-shadow  ${className}`}>
@@ -163,7 +163,13 @@ export function BookingDetailsCard({
               Booking #{booking.id} - {rooms.length > 1 ? "Rooms" : "Room"} {roomNumbers}
             </CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              Created {formatDate(booking.createdAt)}
+              Created {new Date(booking.createdAt).toLocaleString("en-PK", {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
             </p>
           </div>
           <div className="flex flex-col gap-2 items-end">

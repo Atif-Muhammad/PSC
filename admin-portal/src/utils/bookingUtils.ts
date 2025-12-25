@@ -54,8 +54,13 @@ export const getDateStatuses = (
   if (room.bookings && room.bookings.length > 0) {
     console.log('Processing bookings:', room.bookings);
     room.bookings.forEach((booking) => {
-      const start = normalizeToPakistanDate(new Date(booking.checkIn));
-      const end = normalizeToPakistanDate(new Date(booking.checkOut));
+      if (!booking.checkIn || !booking.checkOut) return;
+      const rawStart = new Date(booking.checkIn);
+      const rawEnd = new Date(booking.checkOut);
+      if (isNaN(rawStart.getTime()) || isNaN(rawEnd.getTime())) return;
+
+      const start = normalizeToPakistanDate(rawStart);
+      const end = normalizeToPakistanDate(rawEnd);
       const currentDate = new Date(start);
 
       console.log(`Booking from ${start.toISOString()} to ${end.toISOString()} (PKT)`);
@@ -80,8 +85,13 @@ export const getDateStatuses = (
   if (room.reservations && room.reservations.length > 0) {
     console.log('Processing reservations:', room.reservations);
     room.reservations.forEach((reservation) => {
-      const start = normalizeToPakistanDate(new Date(reservation.reservedFrom));
-      const end = normalizeToPakistanDate(new Date(reservation.reservedTo));
+      if (!reservation.reservedFrom || !reservation.reservedTo) return;
+      const rawStart = new Date(reservation.reservedFrom);
+      const rawEnd = new Date(reservation.reservedTo);
+      if (isNaN(rawStart.getTime()) || isNaN(rawEnd.getTime())) return;
+
+      const start = normalizeToPakistanDate(rawStart);
+      const end = normalizeToPakistanDate(rawEnd);
       const currentDate = new Date(start);
 
       console.log(`Reservation from ${start.toISOString()} to ${end.toISOString()} (PKT)`);
@@ -106,8 +116,13 @@ export const getDateStatuses = (
   // Mark out-of-order dates from room.outOfOrders array
   if (room.outOfOrders && room.outOfOrders.length > 0) {
     room.outOfOrders.forEach((oo: any) => {
-      const start = normalizeToPakistanDate(new Date(oo.startDate));
-      const end = normalizeToPakistanDate(new Date(oo.endDate));
+      if (!oo.startDate || !oo.endDate) return;
+      const rawStart = new Date(oo.startDate);
+      const rawEnd = new Date(oo.endDate);
+      if (isNaN(rawStart.getTime()) || isNaN(rawEnd.getTime())) return;
+
+      const start = normalizeToPakistanDate(rawStart);
+      const end = normalizeToPakistanDate(rawEnd);
       const currentDate = new Date(start);
 
       while (currentDate <= end) {
@@ -134,28 +149,33 @@ export const getDateStatuses = (
 
   // Fallback for legacy fields if array is empty
   if ((!room.outOfOrders || room.outOfOrders.length === 0) && room.isOutOfOrder && room.outOfOrderFrom && room.outOfOrderTo) {
-    const start = normalizeToPakistanDate(new Date(room.outOfOrderFrom));
-    const end = normalizeToPakistanDate(new Date(room.outOfOrderTo));
-    const currentDate = new Date(start);
+    const rawStart = new Date(room.outOfOrderFrom);
+    const rawEnd = new Date(room.outOfOrderTo);
 
-    while (currentDate <= end) {
-      const dateKey = getPakistanDateString(currentDate);
-      const existingIndex = dateStatuses.findIndex(ds =>
-        getPakistanDateString(ds.date) === dateKey
-      );
+    if (!isNaN(rawStart.getTime()) && !isNaN(rawEnd.getTime())) {
+      const start = normalizeToPakistanDate(rawStart);
+      const end = normalizeToPakistanDate(rawEnd);
+      const currentDate = new Date(start);
 
-      if (existingIndex !== -1) {
-        dateStatuses[existingIndex] = {
-          date: new Date(currentDate),
-          status: "OUT_OF_ORDER",
-        };
-      } else {
-        dateStatuses.push({
-          date: new Date(currentDate),
-          status: "OUT_OF_ORDER",
-        });
+      while (currentDate <= end) {
+        const dateKey = getPakistanDateString(currentDate);
+        const existingIndex = dateStatuses.findIndex(ds =>
+          getPakistanDateString(ds.date) === dateKey
+        );
+
+        if (existingIndex !== -1) {
+          dateStatuses[existingIndex] = {
+            date: new Date(currentDate),
+            status: "OUT_OF_ORDER",
+          };
+        } else {
+          dateStatuses.push({
+            date: new Date(currentDate),
+            status: "OUT_OF_ORDER",
+          });
+        }
+        currentDate.setDate(currentDate.getDate() + 1);
       }
-      currentDate.setDate(currentDate.getDate() + 1);
     }
   }
 

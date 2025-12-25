@@ -280,8 +280,8 @@ export default function RoomBookings() {
       // ── EXTRACT DATA ─────────────────────────────────────────
       // Get roomTypeId and roomNumber from rooms relation or legacy fields
       const firstRoom = editBooking.rooms?.[0];
-      const roomTypeId = editBooking.roomTypeId || firstRoom?.roomType?.id || editBooking.room?.roomType?.id;
-      const roomId = editBooking.roomId || firstRoom?.id;
+      const roomTypeId = editBooking.roomTypeId || firstRoom?.room?.roomType?.id || firstRoom?.roomType?.id || editBooking.room?.roomType?.id;
+      const roomId = editBooking.roomId || firstRoom?.room?.id || firstRoom?.id;
 
       // Helper function to convert backend date to datetime-local format
       const convertToDateTimeLocal = (dateString: string): string => {
@@ -322,7 +322,7 @@ export default function RoomBookings() {
 
       // Initialize editSelectedRoomIds
       const bookedRoomIds = editBooking.rooms
-        ? editBooking.rooms.map((r: any) => r.id.toString())
+        ? editBooking.rooms.map((r: any) => (r.room?.id || r.roomId || r.id).toString())
         : roomId ? [roomId.toString()] : [];
 
       setEditSelectedRoomIds(bookedRoomIds);

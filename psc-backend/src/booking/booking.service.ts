@@ -197,6 +197,7 @@ export class BookingService {
     // Create join table entries for each room
     const booking = await this.prismaService.roomBooking.create({
       data: {
+        createdAt: getPakistanDate(),
         Membership_No: membershipNo,
         rooms: {
           create: rooms.map(r => ({

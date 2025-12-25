@@ -73,7 +73,7 @@ export const BookingsTable = React.memo(({
                 <TableCell>
                   {booking.rooms && booking.rooms.length > 0 ? (
                     <>
-                      {booking.rooms.slice(0, 3).map((r: any) => r.roomNumber).join(", ")}
+                      {booking.rooms.slice(0, 3).map((r: any) => r.room?.roomNumber || r.roomNumber).join(", ")}
                       {booking.rooms.length > 3 && ` +${booking.rooms.length - 3}`}
                     </>
                   ) : (
