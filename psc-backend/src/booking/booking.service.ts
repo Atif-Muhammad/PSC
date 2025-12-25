@@ -784,6 +784,7 @@ export class BookingService {
       const rooms = await prisma.room.findMany({
         where: { id: { in: roomIdsToBook } },
         include: {
+          roomType: true,
           outOfOrders: {
             where: {
               startDate: { lt: checkOutDate },
