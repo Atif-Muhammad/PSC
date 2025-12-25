@@ -120,6 +120,14 @@ interface RoomBooking {
   numberOfChildren: number;
 }
 
+interface RoomOnBooking {
+  id: string;
+  roomId: number;
+  bookingId: number;
+  priceAtBooking: number;
+  booking: RoomBooking;
+}
+
 interface Room {
   id: string;
   roomNumber: string;
@@ -130,7 +138,7 @@ interface Room {
   isReserved: boolean;
   outOfOrders: RoomOutOfOrder[];
   reservations: RoomReservation[];
-  bookings: RoomBooking[];
+  bookings: RoomOnBooking[];
 }
 
 export default function Rooms() {
@@ -610,9 +618,9 @@ export default function Rooms() {
   // Filter rooms based on status and type
   const filteredRooms = rooms.filter((room: Room) => {
     const isCurrentlyOutOfOrder = isRoomCurrentlyOutOfOrder(room);
-    const hasCurrentBooking = room.bookings?.some(booking => {
-      const checkIn = new Date(booking.checkIn);
-      const checkOut = new Date(booking.checkOut);
+    const hasCurrentBooking = room.bookings?.some(entry => {
+      const checkIn = new Date(entry.booking?.checkIn);
+      const checkOut = new Date(entry.booking?.checkOut);
       const now = new Date();
       return now >= checkIn && now <= checkOut;
     });
@@ -656,9 +664,9 @@ export default function Rooms() {
     }
 
     // Check if room has current bookings
-    if (room.bookings?.some(booking => {
-      const checkIn = new Date(booking.checkIn);
-      const checkOut = new Date(booking.checkOut);
+    if (room.bookings?.some(entry => {
+      const checkIn = new Date(entry.booking?.checkIn);
+      const checkOut = new Date(entry.booking?.checkOut);
       return now >= checkIn && now <= checkOut;
     })) {
       return "Currently Booked";
@@ -694,9 +702,9 @@ export default function Rooms() {
     }
 
     // Check for current bookings
-    if (room.bookings?.some(booking => {
-      const checkIn = new Date(booking.checkIn);
-      const checkOut = new Date(booking.checkOut);
+    if (room.bookings?.some(entry => {
+      const checkIn = new Date(entry.booking?.checkIn);
+      const checkOut = new Date(entry.booking?.checkOut);
       return now >= checkIn && now <= checkOut;
     })) {
       return "secondary";
@@ -746,10 +754,11 @@ export default function Rooms() {
   const getUpcomingBookings = (room: Room) => {
     const now = new Date();
     return room.bookings
-      ?.filter((booking) => new Date(booking.checkOut) >= now)
+      ?.filter((entry) => new Date(entry.booking?.checkOut) >= now)
+      .map((entry) => entry?.booking)
       .sort(
         (a, b) =>
-          new Date(a.checkIn).getTime() - new Date(b.checkIn).getTime()
+          new Date(a?.checkIn).getTime() - new Date(b?.checkIn).getTime()
       ) || [];
   };
 
@@ -1185,9 +1194,9 @@ export default function Rooms() {
                   const upcomingOutOfOrders = getUpcomingOutOfOrders(room);
                   const upcomingReservations = getUpcomingReservations(room);
                   const upcomingBookings = getUpcomingBookings(room);
-                  const isCurrentlyOccupied = room.bookings?.some(booking => {
-                    const checkIn = new Date(booking.checkIn);
-                    const checkOut = new Date(booking.checkOut);
+                  const isCurrentlyOccupied = room.bookings?.some(entry => {
+                    const checkIn = new Date(entry.booking?.checkIn);
+                    const checkOut = new Date(entry.booking?.checkOut);
                     const now = new Date();
                     return now >= checkIn && now <= checkOut;
                   });
@@ -1290,7 +1299,7 @@ export default function Rooms() {
                         {upcomingBookings.length > 0 ? (
                           <div className="space-y-2">
                             {upcomingBookings
-                              .slice(0, 2)
+                              .slice(0, 3)
                               .map((booking) => (
                                 <div key={booking.id} className="text-xs border-l-2 border-blue-400 pl-2">
                                   <div className="font-medium">
@@ -1314,9 +1323,9 @@ export default function Rooms() {
                                   )}
                                 </div>
                               ))}
-                            {upcomingBookings.length > 2 && (
+                            {upcomingBookings.length > 3 && (
                               <div className="text-xs text-muted-foreground">
-                                +{upcomingBookings.length - 2} more
+                                +{upcomingBookings.length - 3} more
                               </div>
                             )}
                           </div>

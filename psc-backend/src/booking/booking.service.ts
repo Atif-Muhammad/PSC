@@ -38,10 +38,10 @@ export class BookingService {
           gte: new Date(),
         },
       },
-      select: { rooms: { select: { id: true } } },
+      select: { rooms: { select: { roomId: true } } },
     });
 
-    const roomsTobeLocked = bookings.flatMap((b) => b.rooms.map((r) => r.id));
+    const roomsTobeLocked = bookings.flatMap((b) => b.rooms.map((r) => r.roomId));
     return await this.prismaService.room.updateMany({
       where: { id: { in: roomsTobeLocked }, isBooked: false },
       data: { isBooked: true },
@@ -131,8 +131,10 @@ export class BookingService {
         },
         bookings: {
           where: {
-            checkIn: { lt: checkOutDate },
-            checkOut: { gt: checkInDate },
+            booking: {
+              checkIn: { lt: checkOutDate },
+              checkOut: { gt: checkInDate },
+            }
           }
         },
         roomType: true,
@@ -192,14 +194,15 @@ export class BookingService {
     const finalOwed = isToBill ? 0 : owed;
 
     // ── CREATE BOOKING ───────────────────────────────────────
-    // Connect all rooms
+    // Create join table entries for each room
     const booking = await this.prismaService.roomBooking.create({
       data: {
         Membership_No: membershipNo,
-        // roomId is optional now, we can leave it empty or set to first room
-        // roomId: rooms[0].id, 
         rooms: {
-          connect: rooms.map(r => ({ id: r.id }))
+          create: rooms.map(r => ({
+            roomId: r.id,
+            priceAtBooking: pricingType === 'member' ? r.roomType.priceMember : r.roomType.priceGuest
+          }))
         },
         checkIn: checkInDate,
         checkOut: checkOutDate,
@@ -292,12 +295,22 @@ export class BookingService {
     // ── FETCH EXISTING ──────────────────────────────────────
     const booking = await this.prismaService.roomBooking.findUnique({
       where: { id: Number(id) },
-      include: { rooms: { include: { roomType: true } } },
+      include: {
+        rooms: {
+          include: {
+            room: {
+              include: {
+                roomType: true
+              }
+            }
+          }
+        }
+      },
     });
     if (!booking) throw new UnprocessableEntityException('Booking not found');
 
     // ── DATA PREP ──────────────────────────────────────────
-    const currentRoomIds = booking.rooms.map(r => r.id);
+    const currentRoomIds = booking.rooms.map(r => r.roomId);
 
     const newCheckIn = checkIn ? parsePakistanDate(checkIn) : booking.checkIn;
     const newCheckOut = checkOut
@@ -363,11 +376,14 @@ export class BookingService {
         },
         bookings: {
           where: {
-            id: { not: booking.id }, // Exclude current booking
-            checkIn: { lt: newCheckOut },
-            checkOut: { gt: newCheckIn },
+            bookingId: { not: booking.id }, // Exclude current booking
+            booking: {
+              checkIn: { lt: newCheckOut },
+              checkOut: { gt: newCheckIn },
+            }
           }
-        }
+        },
+        roomType: true,
       },
     });
 
@@ -451,11 +467,14 @@ export class BookingService {
       where: { id: booking.id },
       data: {
         Membership_No: membershipNo ?? booking.Membership_No,
-        // Update rooms relation
+        // Update rooms relation using join table
         rooms: {
-          set: targetRoomIds.map(id => ({ id }))
+          deleteMany: {},
+          create: rooms.map(r => ({
+            roomId: r.id,
+            priceAtBooking: (pricingType ?? booking.pricingType) === 'member' ? r.roomType.priceMember : r.roomType.priceGuest
+          }))
         },
-        roomId: targetRoomIds[0], // Maintain simple backward compat if possible, optional
         checkIn: newCheckIn,
         checkOut: newCheckOut,
         totalPrice: newTotal,
@@ -522,12 +541,16 @@ export class BookingService {
       orderBy: { createdAt: 'desc' },
       include: {
         rooms: {
-          select: {
-            id: true,
-            roomNumber: true,
-            roomType: {
-              select: { type: true, id: true },
-            },
+          include: {
+            room: {
+              select: {
+                id: true,
+                roomNumber: true,
+                roomType: {
+                  select: { type: true, id: true },
+                },
+              }
+            }
           }
         },
         member: {
@@ -799,8 +822,10 @@ export class BookingService {
           },
           bookings: {
             where: {
-              checkIn: { lt: checkOutDate },
-              checkOut: { gt: checkInDate },
+              booking: {
+                checkIn: { lt: checkOutDate },
+                checkOut: { gt: checkInDate },
+              }
             }
           }
         }
@@ -884,9 +909,12 @@ export class BookingService {
           guestName,
           guestContact: guestContact?.toString(),
           remarks,
-          // Connect all rooms
+          // Create join table entries
           rooms: {
-            connect: rooms.map(r => ({ id: r.id }))
+            create: rooms.map(r => ({
+              roomId: r.id,
+              priceAtBooking: pricingType === 'member' ? r.roomType.priceMember : r.roomType.priceGuest
+            }))
           }
         },
       });
@@ -983,7 +1011,17 @@ export class BookingService {
     // ── FETCH EXISTING ──────────────────────────────────────
     const booking = await this.prismaService.roomBooking.findUnique({
       where: { id: Number(id) },
-      include: { rooms: { include: { roomType: true } } },
+      include: {
+        rooms: {
+          include: {
+            room: {
+              include: {
+                roomType: true
+              }
+            }
+          }
+        }
+      },
     });
     if (!booking) throw new NotFoundException('Booking not found');
 
@@ -993,7 +1031,7 @@ export class BookingService {
     if (!member) throw new NotFoundException('Member not found');
 
     // ── RESOLVE ROOM IDS ─────────────────────────────────────
-    const currentRoomIds = booking.rooms.map(r => r.id);
+    const currentRoomIds = booking.rooms.map(r => r.roomId);
     const roomIdsToBook = selectedRoomIds && selectedRoomIds.length > 0
       ? selectedRoomIds.map(id => Number(id))
       : currentRoomIds;
@@ -1036,7 +1074,7 @@ export class BookingService {
 
       const overlapping = await this.prismaService.roomBooking.findFirst({
         where: {
-          rooms: { some: { id: room.id } },
+          rooms: { some: { roomId: room.id } },
           id: { not: Number(id) },
           checkIn: { lt: newCheckOut },
           checkOut: { gt: newCheckIn },
@@ -1112,9 +1150,13 @@ export class BookingService {
     const updated = await this.prismaService.roomBooking.update({
       where: { id: Number(id) },
       data: {
-        Membership_No: membershipNo.toString(),
+        Membership_No: membershipNo ?? booking.Membership_No,
         rooms: {
-          set: rooms.map(r => ({ id: r.id }))
+          deleteMany: {},
+          create: rooms.map(r => ({
+            roomId: r.id,
+            priceAtBooking: pricingType === 'member' ? r.roomType.priceMember : r.roomType.priceGuest
+          }))
         },
         checkIn: newCheckIn,
         checkOut: newCheckOut,
@@ -3614,7 +3656,11 @@ export class BookingService {
           include: {
             rooms: {
               include: {
-                roomType: true,
+                room: {
+                  include: {
+                    roomType: true,
+                  },
+                },
               },
             },
           },
@@ -3664,7 +3710,7 @@ export class BookingService {
       ...roomBookings.map((b) => ({
         id: b.id,
         type: 'Room',
-        name: `Room ${b.rooms.map((r) => r.roomNumber).join(', ')} (${b.rooms[0]?.roomType?.type || 'N/A'})`,
+        name: `Room ${b.rooms.map((r) => r.room.roomNumber).join(', ')} (${b.rooms[0]?.room.roomType?.type || 'N/A'})`,
         date: `${new Date(b.checkIn).toLocaleDateString()} - ${new Date(b.checkOut).toLocaleDateString()}`,
         amount: b.totalPrice,
         status: b.paymentStatus,
@@ -3746,7 +3792,18 @@ export class BookingService {
 
     if (type === "Room") {
       return await this.prismaService.roomBooking.findMany({
-        where: { Membership_No }
+        where: { Membership_No },
+        include: {
+          rooms: {
+            include: {
+              room: {
+                include: {
+                  roomType: true,
+                },
+              },
+            },
+          },
+        },
       })
     } else if (type === "Hall") {
       return await this.prismaService.hallBooking.findMany({

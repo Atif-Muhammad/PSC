@@ -165,8 +165,10 @@ export class PaymentService {
         // No bookings during requested period
         bookings: {
           none: {
-            checkIn: { lt: checkOut },
-            checkOut: { gt: checkIn },
+            booking: {
+              checkIn: { lt: checkOut },
+              checkOut: { gt: checkIn },
+            }
           },
         },
         // No out-of-order periods during requested period

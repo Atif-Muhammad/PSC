@@ -93,7 +93,7 @@ model RoomBooking {
   id            Int      @id @default(autoincrement())
   Membership_No String
   roomId        Int?     // Keeping as optional for backward compatibility if needed, but primary relation is now 'rooms'
-  rooms         Room[]  // Many-to-many relation
+  rooms         RoomOnBooking[]
   checkIn       DateTime
   checkOut      DateTime
 
@@ -341,11 +341,28 @@ model Room {
   outOfOrders  RoomOutOfOrder[]
   isReserved   Boolean           @default(false)
   isBooked     Boolean           @default(false)
-  bookings     RoomBooking[]
+  bookings     RoomOnBooking[]
   reservations RoomReservation[]
   holdings roomHoldings[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model RoomOnBooking {
+  id        Int      @id @default(autoincrement())
+  bookingId Int
+  booking   RoomBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  roomId    Int
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  // Store price at the time of booking to protect against future price changes
+  priceAtBooking Decimal @db.Decimal(30, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([bookingId])
+  @@index([roomId])
 }
 
 model roomHoldings {
