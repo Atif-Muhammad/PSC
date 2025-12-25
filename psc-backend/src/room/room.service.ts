@@ -401,13 +401,14 @@ export class RoomService {
                 },
               ],
             },
+            include: { room: { select: { roomNumber: true } } },
           });
 
         // MODIFIED: Check for conflicting bookings
         const conflictingBookings =
           await this.prismaService.roomBooking.findMany({
             where: {
-              roomId: roomId,
+              rooms: { some: { id: roomId } },
               OR: [
                 {
                   // Booking overlaps with out-of-order period
@@ -417,6 +418,7 @@ export class RoomService {
                 },
               ],
             },
+            include: { rooms: { select: { roomNumber: true } } },
           });
 
         // MODIFIED: Check for conflicting existing out-of-order periods
@@ -486,7 +488,7 @@ export class RoomService {
               `Bookings: ${actualConflictingBookings
                 .map(
                   (b) =>
-                    `${formatPakistanDate(b.checkIn)} to ${formatPakistanDate(b.checkOut)}`,
+                    `${b.rooms.map(r => r.roomNumber).join(', ')} (${formatPakistanDate(b.checkIn)} to ${formatPakistanDate(b.checkOut)})`,
                 )
                 .join(', ')}`,
             );
@@ -732,7 +734,7 @@ export class RoomService {
         // MODIFIED: Check for booking conflicts
         const conflictingBookings = await prisma.roomBooking.findMany({
           where: {
-            roomId: { in: roomIds },
+            rooms: { some: { id: { in: roomIds } } },
             OR: [
               {
                 // Booking starts during reservation period
@@ -742,13 +744,13 @@ export class RoomService {
               },
             ],
           },
-          include: { room: { select: { roomNumber: true } } },
+          include: { rooms: { select: { roomNumber: true } } },
         });
 
         if (conflictingBookings.length > 0) {
           const conflicts = conflictingBookings.map(
             (conflict) =>
-              `Room ${conflict.room.roomNumber} (${formatPakistanDate(conflict.checkIn)} - ${formatPakistanDate(conflict.checkOut)})`,
+              `Room ${conflict.rooms.map(r => r.roomNumber).join(', ')} (${formatPakistanDate(conflict.checkIn)} - ${formatPakistanDate(conflict.checkOut)})`,
           );
           throw new HttpException(
             `Booking conflicts: ${conflicts.join(', ')}`,
@@ -903,7 +905,7 @@ export class RoomService {
     const allConflictingRoomIds = [
       ...conflictingOutOfOrderRooms.map((oo) => oo.roomId),
       ...conflictingReservationRooms.map((r) => r.roomId),
-      ...conflictingBookingRooms.map((b) => b.roomId),
+      ...conflictingBookingRooms.flatMap((b) => b.roomId ? [b.roomId] : []), // Flatten and filter nulls
       ...heldRooms.map((h) => h.roomId), // Add held rooms to conflicts
     ];
 
@@ -970,11 +972,14 @@ export class RoomService {
       }),
       this.prismaService.roomBooking.findMany({
         where: {
-          roomId,
+          rooms: { some: { id: roomId } },
           checkIn: { lt: toDate },
           checkOut: { gt: fromDate },
         },
-        include: { member: { select: { Name: true, Membership_No: true } } },
+        include: {
+          member: { select: { Name: true, Membership_No: true } },
+          rooms: { select: { roomNumber: true } }
+        },
         orderBy: { checkIn: 'asc' },
       }),
       this.prismaService.roomOutOfOrder.findMany({

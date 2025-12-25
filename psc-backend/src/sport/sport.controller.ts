@@ -137,8 +137,7 @@ export class SportController {
         return this.sport.updateSport(Number(id), sportPayload, files?.files || []);
     }
 
-    @UseGuards(JwtAccGuard, RolesGuard)
-    @Roles(RolesEnum.SUPER_ADMIN)
+    @UseGuards(JwtAccGuard)
     @Get('get/sports')
     async getSports() {
         return this.sport.getSports();

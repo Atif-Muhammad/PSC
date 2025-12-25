@@ -34,7 +34,12 @@ export class PaymentService {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(paymentData),
+        body: JSON.stringify({
+          ...paymentData.bookingData,
+          membershipNo: paymentData.consumerInfo.membership_no,
+          paymentMode: 'ONLINE',
+          paymentStatus: 'PAID', // Online payment is successful at this point
+        }),
       }));
     const bookHall = async (paymentData) => {
       const done = await fetch(
@@ -44,7 +49,12 @@ export class PaymentService {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(paymentData),
+          body: JSON.stringify({
+            ...paymentData.bookingData,
+            membershipNo: paymentData.consumerInfo.membership_no,
+            paymentMode: 'ONLINE',
+            paymentStatus: 'PAID',
+          }),
         },
       );
       console.log(done);
@@ -56,7 +66,12 @@ export class PaymentService {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(paymentData),
+        body: JSON.stringify({
+          ...paymentData.bookingData,
+          membershipNo: paymentData.consumerInfo.membership_no,
+          paymentMode: 'ONLINE',
+          paymentStatus: 'PAID',
+        }),
       }));
 
     const bookPhoto = async (paymentData) => {
@@ -67,7 +82,12 @@ export class PaymentService {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(paymentData),
+          body: JSON.stringify({
+            ...paymentData.bookingData,
+            membershipNo: paymentData.consumerInfo.membership_no,
+            paymentMode: 'ONLINE',
+            paymentStatus: 'PAID',
+          }),
         },
       );
       // console.log(done)
@@ -130,7 +150,7 @@ export class PaymentService {
         isActive: true,
         holdings: {
           none: {
-            holdBy: bookingData.membership_no.toString(),
+            holdBy: { not: bookingData.membership_no.toString() },
             onHold: true,
             holdExpiry: { gt: new Date() },
           },

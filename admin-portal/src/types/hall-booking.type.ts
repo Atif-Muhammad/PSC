@@ -23,6 +23,7 @@ export interface HallBooking {
   paidBy?: "MEMBER" | "GUEST";
   guestName?: "",
   guestContact?: "",
+  numberOfDays?: number;
   remarks?: string;
 
   member?: {
@@ -67,6 +68,7 @@ export interface Hall {
   reservations: any[];
   bookings: HallBooking[];
   images: any[];
+  outOfOrders?: any[];
 }
 
 export interface HallBookingForm {
@@ -88,6 +90,7 @@ export interface HallBookingForm {
   paidBy?: "MEMBER" | "GUEST";
   guestName?: "",
   guestContact?: ""
+  numberOfDays: number;
   remarks?: string;
 }
 

@@ -20,7 +20,7 @@ import {
   searchMembers,
   getVouchers,
 } from "../../config/apis";
-import { Plus, Loader2 } from "lucide-react";
+import { Plus, Loader2, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -38,11 +38,11 @@ import {
 } from "@/components/ui/select";
 
 // Import reusable components
-import { BookingFormComponent } from "@/components/BookingForm";
 import { BookingsTable } from "@/components/BookingsTable";
 import { EditBookingDialog } from "@/components/EditBookingDialog";
 import { VouchersDialog } from "@/components/VouchersDialog";
 import { CancelBookingDialog } from "@/components/CancelBookingDialog";
+import { BookingFormComponent } from "@/components/BookingForm";
 
 // Import types and utilities
 import {
@@ -61,6 +61,13 @@ import {
 import { format } from "date-fns";
 import { BookingDetailsCard } from "@/components/details/RoomBookingDets";
 
+// ShadCN components for inlined form
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+
 export default function RoomBookings() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editBooking, setEditBooking] = useState<Booking | null>(null);
@@ -72,7 +79,11 @@ export default function RoomBookings() {
   const [availableRooms, setAvailableRooms] = useState<Room[]>([]);
   const [editAvailableRooms, setEditAvailableRooms] = useState<Room[]>([]);
   const [detailBooking, setDetailBooking] = useState<Booking | null>(null);
-  const [openDetails, setOpenDetails] = useState(false)
+  const [openDetails, setOpenDetails] = useState(false);
+
+  // Multi-room selection states
+  const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([]);
+  const [editSelectedRoomIds, setEditSelectedRoomIds] = useState<string[]>([]);
 
   // Member search states for create dialog
   const [memberSearch, setMemberSearch] = useState("");
@@ -104,7 +115,6 @@ export default function RoomBookings() {
   });
 
   // Vouchers query - only enabled when viewing vouchers
-
   const { data: vouchers = [], isLoading: isLoadingVouchers } = useQuery<any[]>(
     {
       queryKey: ["vouchers", viewVouchers?.id],
@@ -118,12 +128,11 @@ export default function RoomBookings() {
     data: searchResults = [],
     isLoading: isSearching,
     refetch: searchMembersFn,
-    useQuery: useMemberSearchQuery,
   } = useQuery<Member[]>({
     queryKey: ["memberSearch", memberSearch],
     queryFn: async () => (await searchMembers(memberSearch)) as Member[],
     enabled: false,
-  }) as any; // Cast to any to avoid type issues if useQuery signature mismatch
+  });
 
   // Date statuses for the create/edit dialogs
   const createDateStatuses = useMemo(
@@ -253,36 +262,26 @@ export default function RoomBookings() {
     },
   });
 
-  // Fetch available rooms when room type is selected for create dialog
+  // Derive available rooms whenever form.roomTypeId or allRooms changes
   useEffect(() => {
-    const fetchAvailableRooms = async () => {
-      if (form.roomTypeId) {
-        try {
-          const response = await getAvailRooms(form.roomTypeId);
-          console.log(response);
-          const rooms = (response?.data ?? response ?? []) as Room[];
-          setAvailableRooms(rooms);
-        } catch (error) {
-          setAvailableRooms([]);
-          toast({
-            title: "Failed to fetch available rooms",
-            variant: "destructive",
-          });
-        }
-      } else {
-        setAvailableRooms([]);
-      }
-    };
-
-    fetchAvailableRooms();
-  }, [form.roomTypeId, toast]);
+    if (form.roomTypeId) {
+      const filtered = allRooms.filter(
+        (r) => r.roomTypeId.toString() === form.roomTypeId
+      );
+      setAvailableRooms(filtered);
+    } else {
+      setAvailableRooms([]);
+    }
+  }, [form.roomTypeId, allRooms]);
 
   // Update edit form when editBooking changes
   useEffect(() => {
     if (editBooking) {
-      const roomTypeId =
-        editBooking.roomTypeId || editBooking.room?.roomType?.id;
-      const roomId = editBooking.roomId;
+      // ── EXTRACT DATA ─────────────────────────────────────────
+      // Get roomTypeId and roomNumber from rooms relation or legacy fields
+      const firstRoom = editBooking.rooms?.[0];
+      const roomTypeId = editBooking.roomTypeId || firstRoom?.roomType?.id || editBooking.room?.roomType?.id;
+      const roomId = editBooking.roomId || firstRoom?.id;
 
       // Helper function to convert backend date to datetime-local format
       const convertToDateTimeLocal = (dateString: string): string => {
@@ -300,8 +299,8 @@ export default function RoomBookings() {
         roomId: roomId?.toString() || "",
         pricingType: editBooking.pricingType || "member",
         paidBy: editBooking.paidBy || "MEMBER",
-        guestName: editBooking.guestName,
-        guestContact: editBooking.guestContact,
+        guestName: editBooking.guestName || "",
+        guestContact: editBooking.guestContact || "",
         checkIn: editBooking.checkIn
           ? convertToDateTimeLocal(editBooking.checkIn)
           : "",
@@ -321,134 +320,90 @@ export default function RoomBookings() {
 
       setEditForm(newEditForm);
 
-      // Fetch available rooms for the room type
-      if (roomTypeId) {
-        getAvailRooms(roomTypeId.toString())
-          .then((response) => {
-            const availableRoomsData = (response?.data ??
-              response ??
-              []) as Room[];
-            setEditAvailableRooms(availableRoomsData);
+      // Initialize editSelectedRoomIds
+      const bookedRoomIds = editBooking.rooms
+        ? editBooking.rooms.map((r: any) => r.id.toString())
+        : roomId ? [roomId.toString()] : [];
 
-            // If the current room is not in available rooms, add it to the list
-            if (
-              roomId &&
-              !availableRoomsData.some((room: Room) => room.id === roomId)
-            ) {
-              const currentRoom: Room = {
-                id: roomId,
-                roomNumber:
-                  editBooking.roomNumber ||
-                  editBooking.room?.roomNumber ||
-                  `Room ${roomId}`,
-                roomType:
-                  editBooking.roomType ||
-                  editBooking.room?.roomType?.type ||
-                  "Unknown",
-                roomTypeId: roomTypeId,
-                isActive: true,
-                reservations: [],
-                bookings: [],
-              };
-              setEditAvailableRooms([currentRoom, ...availableRoomsData]);
-            }
-          })
-          .catch((error) => {
-            console.error("Failed to fetch available rooms:", error);
-            // Create a fallback room entry if fetch fails
-            if (roomId && roomTypeId) {
-              const fallbackRoom: Room = {
-                id: roomId,
-                roomNumber:
-                  editBooking.roomNumber ||
-                  editBooking.room?.roomNumber ||
-                  `Room ${roomId}`,
-                roomType:
-                  editBooking.roomType ||
-                  editBooking.room?.roomType?.type ||
-                  "Unknown",
-                roomTypeId: roomTypeId,
-                isActive: true,
-                reservations: [],
-                bookings: [],
-              };
-              setEditAvailableRooms([fallbackRoom]);
-            } else {
-              setEditAvailableRooms([]);
-            }
-          });
+      setEditSelectedRoomIds(bookedRoomIds);
+
+      // Populate editAvailableRooms from allRooms for the type immediately
+      if (roomTypeId) {
+        const filtered = allRooms.filter(
+          (r) => r.roomTypeId.toString() === roomTypeId.toString()
+        );
+        setEditAvailableRooms(filtered);
       }
     }
-  }, [editBooking]);
+  }, [editBooking, allRooms]);
 
-  // Conflict check function
-  const checkConflicts = (roomId: string, checkIn: string, checkOut: string, excludeBookingId?: number) => {
-    const room = allRooms.find((r) => r.id.toString() === roomId);
-    if (!room) return null;
+  // Updated Conflict Check
+  const checkConflicts = (roomIds: string[], checkIn: string, checkOut: string, excludeBookingId?: number) => {
+    if (!roomIds.length) return null;
 
     const selStart = new Date(checkIn);
     const selEnd = new Date(checkOut);
     selStart.setHours(0, 0, 0, 0);
     selEnd.setHours(0, 0, 0, 0);
 
-    // 1. Check Out of Order (Inclusive)
-    const ooConflict = room.outOfOrders?.find((oo: any) => {
-      const ooStart = new Date(oo.startDate);
-      const ooEnd = new Date(oo.endDate);
-      ooStart.setHours(0, 0, 0, 0);
-      ooEnd.setHours(0, 0, 0, 0);
-      return selStart <= ooEnd && selEnd > ooStart;
-    });
-    if (ooConflict) return `Room is out of service from ${format(new Date(ooConflict.startDate), "PP")} to ${format(new Date(ooConflict.endDate), "PP")}`;
+    for (const roomId of roomIds) {
+      const room = allRooms.find((r) => r.id.toString() === roomId);
+      if (!room) continue;
 
-    // 2. Check Reservations
-    const resConflict = room.reservations?.find((res: any) => {
-      const resStart = new Date(res.reservedFrom);
-      const resEnd = new Date(res.reservedTo);
-      resStart.setHours(0, 0, 0, 0);
-      resEnd.setHours(0, 0, 0, 0);
-      return selStart < resEnd && selEnd > resStart;
-    });
-    if (resConflict) return `Room has a reservation from ${format(new Date(resConflict.reservedFrom), "PP")} to ${format(new Date(resConflict.reservedTo), "PP")}`;
+      // 1. Check Out of Order
+      const ooConflict = room.outOfOrders?.find((oo: any) => {
+        const ooStart = new Date(oo.startDate);
+        const ooEnd = new Date(oo.endDate);
+        ooStart.setHours(0, 0, 0, 0);
+        ooEnd.setHours(0, 0, 0, 0);
+        return selStart <= ooEnd && selEnd > ooStart;
+      });
+      if (ooConflict) return `Room ${room.roomNumber} is out of service from ${format(new Date(ooConflict.startDate), "PP")} to ${format(new Date(ooConflict.endDate), "PP")}`;
 
-    // 3. Check Other Bookings
-    const bookingConflict = room.bookings?.find((book: any) => {
-      if (excludeBookingId && book.id === excludeBookingId) return false;
-      const bStart = new Date(book.checkIn);
-      const bEnd = new Date(book.checkOut);
-      bStart.setHours(0, 0, 0, 0);
-      bEnd.setHours(0, 0, 0, 0);
-      return selStart < bEnd && selEnd > bStart;
-    });
-    if (bookingConflict) return `Room is already booked from ${format(new Date(bookingConflict.checkIn), "PP")} to ${format(new Date(bookingConflict.checkOut), "PP")}`;
+      // 2. Check Reservations
+      const resConflict = room.reservations?.find((res: any) => {
+        const resStart = new Date(res.reservedFrom);
+        const resEnd = new Date(res.reservedTo);
+        resStart.setHours(0, 0, 0, 0);
+        resEnd.setHours(0, 0, 0, 0);
+        return selStart < resEnd && selEnd > resStart;
+      });
+      if (resConflict) return `Room ${room.roomNumber} has a reservation from ${format(new Date(resConflict.reservedFrom), "PP")} to ${format(new Date(resConflict.reservedTo), "PP")}`;
 
+      // 3. Check Other Bookings
+      const bookingConflict = room.bookings?.find((book: any) => {
+        if (excludeBookingId && book.id === excludeBookingId) return false;
+        const bStart = new Date(book.checkIn);
+        const bEnd = new Date(book.checkOut);
+        bStart.setHours(0, 0, 0, 0);
+        bEnd.setHours(0, 0, 0, 0);
+        return selStart < bEnd && selEnd > bStart;
+      });
+      if (bookingConflict) return `Room ${room.roomNumber} is already booked from ${format(new Date(bookingConflict.checkIn), "PP")} to ${format(new Date(bookingConflict.checkOut), "PP")}`;
+    }
     return null;
   };
 
-  // Calculate price function
-  const calculatePriceForForm = (
-    roomTypeId: string,
-    pricingType: string,
-    checkIn: string,
-    checkOut: string
-  ) => {
-    return calculatePrice(
-      roomTypeId,
-      pricingType,
-      checkIn,
-      checkOut,
-      roomTypes
-    );
+  // Updated Price Calculation
+  const calculateTotal = (roomTypeId: string, pricingType: string, checkIn: string, checkOut: string, roomCount: number) => {
+    if (!roomTypeId || !checkIn || !checkOut || roomCount === 0) return 0;
+    const basePrice = calculatePrice(roomTypeId, pricingType, checkIn, checkOut, roomTypes);
+    return basePrice * roomCount;
   };
 
   // Unified form change handler
   const createFormChangeHandler = (isEdit: boolean) => {
     return (field: keyof BookingForm, value: any) => {
       const setFormFn = isEdit ? setEditForm : setForm;
-      const formState = isEdit ? editForm : form;
+      const currentSelectedRoomIds = isEdit ? editSelectedRoomIds : selectedRoomIds;
 
       setFormFn((prev) => {
         const newForm = { ...prev, [field]: value };
+
+        if (field === "roomTypeId") {
+          const clearIds = isEdit ? setEditSelectedRoomIds : setSelectedRoomIds;
+          clearIds([]);
+        }
 
         // Recalculate price when relevant fields change
         if (
@@ -458,39 +413,32 @@ export default function RoomBookings() {
           const oldPaid = prev.paidAmount || 0;
           const oldPaymentStatus = prev.paymentStatus;
 
-          const newPrice = calculatePriceForForm(
+          const newPrice = calculateTotal(
             field === "roomTypeId" ? value : newForm.roomTypeId,
             field === "pricingType" ? value : newForm.pricingType,
             field === "checkIn" ? value : newForm.checkIn,
-            field === "checkOut" ? value : newForm.checkOut
+            field === "checkOut" ? value : newForm.checkOut,
+            field === "roomTypeId" ? 0 : currentSelectedRoomIds.length
           );
           newForm.totalPrice = newPrice;
 
           // AUTO-ADJUST PAYMENT STATUS WHEN DATES CHANGE IN EDIT MODE
           if (isEdit && ["checkIn", "checkOut"].includes(field)) {
-            // Scenario 1: Charges DECREASED (refund scenario)
             if (newPrice < oldPaid) {
-              // Keep PAID status - backend will handle refund voucher
               newForm.paymentStatus = "PAID";
               newForm.paidAmount = newPrice;
               newForm.pendingAmount = 0;
             }
-            // Scenario 2: Charges INCREASED and was previously PAID
             else if (newPrice > oldPaid && oldPaymentStatus === "PAID") {
-              // Auto-change to HALF_PAID
               newForm.paymentStatus = "HALF_PAID";
-              newForm.paidAmount = oldPaid; // Keep the amount already paid
-              newForm.pendingAmount = newPrice - oldPaid;
-            }
-            // Scenario 3: Charges INCREASED but was HALF_PAID or UNPAID
-            else if (newPrice > oldTotal && (oldPaymentStatus === "HALF_PAID" || oldPaymentStatus === "UNPAID")) {
-              // Keep current status, just update amounts
               newForm.paidAmount = oldPaid;
               newForm.pendingAmount = newPrice - oldPaid;
             }
-            // Scenario 4: Charges UNCHANGED or other cases
+            else if (newPrice > oldTotal && (oldPaymentStatus === "HALF_PAID" || oldPaymentStatus === "UNPAID")) {
+              newForm.paidAmount = oldPaid;
+              newForm.pendingAmount = newPrice - oldPaid;
+            }
             else {
-              // Recalculate accounting values normally
               const accounting = calculateAccountingValues(
                 newForm.paymentStatus,
                 newPrice,
@@ -500,7 +448,6 @@ export default function RoomBookings() {
               newForm.pendingAmount = accounting.pendingAmount;
             }
           } else {
-            // For create mode or non-date field changes, use normal accounting
             const accounting = calculateAccountingValues(
               newForm.paymentStatus,
               newPrice,
@@ -511,7 +458,6 @@ export default function RoomBookings() {
           }
         }
 
-        // Handle payment status changes
         if (field === "paymentStatus") {
           const accounting = calculateAccountingValues(
             value,
@@ -522,7 +468,6 @@ export default function RoomBookings() {
           newForm.pendingAmount = accounting.pendingAmount;
         }
 
-        // Handle paid amount changes for half-paid status
         if (field === "paidAmount" && newForm.paymentStatus === "HALF_PAID") {
           newForm.pendingAmount = newForm.totalPrice - value;
         }
@@ -532,14 +477,54 @@ export default function RoomBookings() {
     };
   };
 
+  // Derive editAvailableRooms whenever editForm.roomTypeId or allRooms changes
+  useEffect(() => {
+    if (editForm.roomTypeId) {
+      const filtered = allRooms.filter(
+        (r) => r.roomTypeId.toString() === editForm.roomTypeId
+      );
+      setEditAvailableRooms(filtered);
+    } else {
+      setEditAvailableRooms([]);
+    }
+  }, [editForm.roomTypeId, allRooms]);
+
   const handleFormChange = createFormChangeHandler(false);
   const handleEditFormChange = createFormChangeHandler(true);
+
+  const handleRoomSelection = (roomId: string, isEdit: boolean) => {
+    const currentIds = isEdit ? editSelectedRoomIds : selectedRoomIds;
+    const setIds = isEdit ? setEditSelectedRoomIds : setSelectedRoomIds;
+    const currentForm = isEdit ? editForm : form;
+    const setFormFn = isEdit ? setEditForm : setForm;
+
+    let newIds = [];
+    if (currentIds.includes(roomId)) {
+      newIds = currentIds.filter(id => id !== roomId);
+    } else {
+      newIds = [...currentIds, roomId];
+    }
+    setIds(newIds);
+
+    // Recalculate Price
+    const newTotal = calculateTotal(currentForm.roomTypeId, currentForm.pricingType, currentForm.checkIn, currentForm.checkOut, newIds.length);
+
+    setFormFn(prev => {
+      const accounting = calculateAccountingValues(prev.paymentStatus, newTotal, prev.paidAmount);
+      return {
+        ...prev,
+        totalPrice: newTotal,
+        paidAmount: prev.paymentStatus === 'PAID' ? newTotal : prev.paidAmount,
+        pendingAmount: prev.paymentStatus === 'PAID' ? 0 : accounting.pendingAmount
+      }
+    });
+  };
 
   const handleCreate = () => {
     if (
       !form.membershipNo ||
       !form.roomTypeId ||
-      !form.roomId ||
+      selectedRoomIds.length === 0 ||
       !form.checkIn ||
       !form.checkOut ||
       !form.numberOfAdults
@@ -551,7 +536,6 @@ export default function RoomBookings() {
       return;
     }
 
-    // Validate guest count
     if (form.numberOfAdults < 1) {
       toast({
         title: "At least one adult is required",
@@ -560,29 +544,8 @@ export default function RoomBookings() {
       return;
     }
 
-    if (form.numberOfAdults + form.numberOfChildren > 6) {
-      toast({
-        title: "Maximum capacity exceeded",
-        description: "Maximum 6 guests total (adults + children)",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Validate dates
     const checkInDate = new Date(form.checkIn);
-    // console.log(checkInDate)
     const checkOutDate = new Date(form.checkOut);
-
-    // Normalize dates to start of day for comparison
-    const normalizedCheckIn = new Date(checkInDate);
-    normalizedCheckIn.setHours(0, 0, 0, 0);
-
-    const normalizedCheckOut = new Date(checkOutDate);
-    normalizedCheckOut.setHours(0, 0, 0, 0);
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
 
     if (checkInDate >= checkOutDate) {
       toast({
@@ -593,50 +556,16 @@ export default function RoomBookings() {
       return;
     }
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const normalizedCheckIn = new Date(checkInDate);
+    normalizedCheckIn.setHours(0, 0, 0, 0);
     if (normalizedCheckIn < today) {
-      toast({
-        title: "Invalid check-in date",
-        description: "Check-in date cannot be in the past",
-        variant: "destructive",
-      });
+      toast({ title: "Invalid check-in date", description: "Cannot book in the past", variant: "destructive" });
       return;
     }
 
-    // Validate paid amount for half-paid status
-    if (form.paymentStatus === "HALF_PAID") {
-      if (form.paidAmount <= 0) {
-        toast({
-          title: "Invalid paid amount",
-          description: "Please enter a valid paid amount for half-paid status",
-          variant: "destructive",
-        });
-        return;
-      }
-      if (form.paidAmount >= form.totalPrice) {
-        toast({
-          title: "Invalid paid amount",
-          description:
-            "Paid amount must be less than total price for half-paid status",
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-
-    // Guest Info Validation
-    if (form.pricingType === "guest") {
-      if (!form.guestName || !form.guestContact) {
-        toast({
-          title: "Guest information required",
-          description: "Guest name and contact are required for guest pricing",
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-
-    // Conflict Check
-    const conflict = checkConflicts(form.roomId, form.checkIn, form.checkOut);
+    const conflict = checkConflicts(selectedRoomIds, form.checkIn, form.checkOut);
     if (conflict) {
       toast({
         title: "Booking Conflict",
@@ -650,7 +579,8 @@ export default function RoomBookings() {
       category: "Room",
       membershipNo: form.membershipNo,
       subCategoryId: form.roomTypeId,
-      entityId: form.roomId,
+      entityId: selectedRoomIds[0],
+      selectedRoomIds: selectedRoomIds,
       pricingType: form.pricingType,
       checkIn: form.checkIn.split("T")[0],
       checkOut: form.checkOut.split("T")[0],
@@ -675,7 +605,7 @@ export default function RoomBookings() {
     if (
       !editForm.membershipNo ||
       !editForm.roomTypeId ||
-      !editForm.roomId ||
+      editSelectedRoomIds.length === 0 ||
       !editForm.checkIn ||
       !editForm.checkOut
     ) {
@@ -686,41 +616,7 @@ export default function RoomBookings() {
       return;
     }
 
-    // Validate paid amount for half-paid status
-    if (editForm.paymentStatus === "HALF_PAID") {
-      if (editForm.paidAmount <= 0) {
-        toast({
-          title: "Invalid paid amount",
-          description: "Please enter a valid paid amount for half-paid status",
-          variant: "destructive",
-        });
-        return;
-      }
-      if (editForm.paidAmount >= editForm.totalPrice) {
-        toast({
-          title: "Invalid paid amount",
-          description:
-            "Paid amount must be less than total price for half-paid status",
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-
-    // Guest Info Validation
-    if (editForm.pricingType === "guest") {
-      if (!editForm.guestName || !editForm.guestContact) {
-        toast({
-          title: "Guest information required",
-          description: "Guest name and contact are required for guest pricing",
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-
-    // Conflict Check
-    const conflict = checkConflicts(editForm.roomId, editForm.checkIn, editForm.checkOut, editBooking.id);
+    const conflict = checkConflicts(editSelectedRoomIds, editForm.checkIn, editForm.checkOut, editBooking?.id);
     if (conflict) {
       toast({
         title: "Booking Conflict",
@@ -735,7 +631,8 @@ export default function RoomBookings() {
       category: "Room",
       membershipNo: editForm.membershipNo,
       subCategoryId: editForm.roomTypeId,
-      entityId: editForm.roomId,
+      entityId: editSelectedRoomIds[0],
+      selectedRoomIds: editSelectedRoomIds,
       pricingType: editForm.pricingType,
       checkIn: editForm.checkIn.split("T")[0],
       checkOut: editForm.checkOut.split("T")[0],
@@ -745,16 +642,14 @@ export default function RoomBookings() {
       pendingAmount: editForm.pendingAmount,
       paymentMode: "CASH",
       prevRoomId: editBooking?.roomId?.toString(),
-      paidBy: editBooking.paidBy,
-      guestContact: editBooking.guestContact,
-      guestName: editBooking.guestName,
+      paidBy: editForm.paidBy,
+      guestContact: editForm.guestContact,
+      guestName: editForm.guestName,
       numberOfAdults: editForm.numberOfAdults,
       numberOfChildren: editForm.numberOfChildren,
       specialRequests: editForm.specialRequests,
       remarks: editForm.remarks,
     };
-
-    console.log(payload);
 
     updateMutation.mutate(payload);
   };
@@ -798,12 +693,14 @@ export default function RoomBookings() {
     setMemberSearch("");
     setSelectedMember(null);
     setShowMemberResults(false);
+    setSelectedRoomIds([]);
   };
 
   const resetEditForm = () => {
     setEditForm(initialFormState);
     setEditAvailableRooms([]);
     setEditBooking(null);
+    setEditSelectedRoomIds([]);
   };
 
   return (
@@ -818,7 +715,7 @@ export default function RoomBookings() {
         <div className="flex gap-2">
           <Select value={paymentFilter} onValueChange={setPaymentFilter}>
             <SelectTrigger className="w-[180px]">
-              <SelectValue />
+              <SelectValue placeholder="Filter Payment" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">All Status</SelectItem>
@@ -862,30 +759,15 @@ export default function RoomBookings() {
                 onClearMember={handleClearMember}
                 onSearchFocus={handleSearchFocus}
                 dateStatuses={createDateStatuses}
+                isEdit={false}
+                selectedRoomIds={selectedRoomIds}
+                onRoomSelection={(roomId) => handleRoomSelection(roomId, false)}
               />
 
               <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setIsAddOpen(false);
-                    resetForm();
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleCreate}
-                  disabled={createMutation.isPending || !selectedMember}
-                >
-                  {createMutation.isPending ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Creating...
-                    </>
-                  ) : (
-                    "Create Booking"
-                  )}
+                <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
+                <Button onClick={handleCreate} disabled={createMutation.isPending || !selectedMember}>
+                  {createMutation.isPending ? "Creating..." : "Create Booking"}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -893,21 +775,19 @@ export default function RoomBookings() {
         </div>
       </div>
 
-      {/* Bookings Table */}
       <BookingsTable
         bookings={filteredBookings}
         isLoading={isLoadingBookings}
         onEdit={setEditBooking}
         onDetail={(booking: Booking) => {
-          setOpenDetails(true)
-          setDetailBooking(booking)
+          setOpenDetails(true);
+          setDetailBooking(booking);
         }}
         onViewVouchers={handleViewVouchers}
         onCancel={setCancelBooking}
         getPaymentBadge={getPaymentBadge}
       />
 
-      {/* Edit Dialog */}
       <EditBookingDialog
         editBooking={editBooking}
         editForm={editForm}
@@ -919,10 +799,12 @@ export default function RoomBookings() {
         onUpdate={handleUpdate}
         onClose={resetEditForm}
         isUpdating={updateMutation.isPending}
+        selectedRoomIds={editSelectedRoomIds}
+        onRoomSelection={handleRoomSelection}
       />
 
       <Dialog open={openDetails} onOpenChange={setOpenDetails}>
-        <DialogContent className="p-0 max-w-5xl min-w-4xl overflow-hidden">
+        <DialogContent className="p-0 max-w-5xl min-w-[60vw] overflow-hidden">
           {detailBooking && (
             <BookingDetailsCard
               booking={detailBooking}
@@ -932,7 +814,6 @@ export default function RoomBookings() {
         </DialogContent>
       </Dialog>
 
-      {/* Vouchers Dialog */}
       <VouchersDialog
         viewVouchers={viewVouchers}
         onClose={() => setViewVouchers(null)}
@@ -940,7 +821,6 @@ export default function RoomBookings() {
         isLoadingVouchers={isLoadingVouchers}
       />
 
-      {/* Cancel Booking Dialog */}
       <CancelBookingDialog
         cancelBooking={cancelBooking}
         onClose={() => setCancelBooking(null)}

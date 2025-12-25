@@ -38,7 +38,7 @@ export interface Booking {
   id: number;
   Membership_No: string;
   memberName: string;
-  roomId: number;
+  roomId?: number;
   roomNumber: string;
   roomTypeId: number;
   roomType: string;
@@ -53,6 +53,7 @@ export interface Booking {
   paidAmount: number;
   pendingAmount: number;
   member?: Member;
+  rooms?: any[];
   room?: {
     id: number;
     roomNumber: string;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,6 +39,12 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { format } from "date-fns";
+import { DateRange } from "react-day-picker";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { getPakistanDate, getPakistanDateString, normalizeToPakistanDate } from "@/utils/pakDate";
 import { ImageUpload } from "@/components/ImageUpload";
 import {
   Select,
@@ -132,11 +138,67 @@ interface Hall {
   bookings: HallBooking[];
   images: any[];
   // Legacy fields (kept for compatibility)
-  isOutOfService?: boolean;
+  isOutOfService: boolean;
   outOfServiceReason?: string;
   outOfServiceFrom?: string;
   outOfServiceTo?: string;
 }
+
+const MaintenanceIndicator = ({
+  outOfOrders,
+  isOutOfService,
+}: {
+  outOfOrders: OutOfOrderPeriod[];
+  isOutOfService: boolean;
+}) => {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const today = now.getTime();
+
+  // All current or future periods
+  const activeAndFuture = outOfOrders
+    ?.filter((p) => new Date(p.endDate).getTime() >= today)
+    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()) || [];
+
+  const displayCount = 2;
+  const sliced = activeAndFuture.slice(0, displayCount);
+  const remaining = activeAndFuture.length - displayCount;
+
+  if (activeAndFuture.length === 0 && !isOutOfService) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-col gap-1 mt-2">
+      {sliced.map((p, idx) => {
+        const isCurrent = new Date(p.startDate).getTime() <= today && new Date(p.endDate).getTime() >= today;
+        return (
+          <div key={idx} className="flex flex-col gap-0.5 bg-orange-50 p-1.5 rounded border border-orange-100">
+            <div className="flex items-center gap-1">
+              <Badge
+                variant={isCurrent ? "destructive" : "secondary"}
+                className={`text-[9px] py-0 px-1 h-3.5 ${!isCurrent ? "bg-orange-100 text-orange-700 hover:bg-orange-100 border-orange-200" : ""}`}
+              >
+                {isCurrent ? "Maintenance" : "Scheduled"}
+              </Badge>
+            </div>
+            <span className={`text-[10px] font-medium leading-tight ${isCurrent ? "text-red-700" : "text-orange-700"}`}>
+              {p.reason}
+            </span>
+            <span className="text-[9px] text-muted-foreground italic">
+              ({new Date(p.startDate).toLocaleDateString()} - {new Date(p.endDate).toLocaleDateString()})
+            </span>
+          </div>
+        );
+      })}
+      {remaining > 0 && (
+        <span className="text-[9px] text-muted-foreground font-medium pl-1">
+          + {remaining} more periods
+        </span>
+      )}
+    </div>
+  );
+};
 
 export default function Halls() {
   const { toast } = useToast();
@@ -242,6 +304,46 @@ export default function Halls() {
       toast({ title: "Failed to delete hall", variant: "destructive" }),
   });
 
+  // Calculate date statuses for highlighting
+  const dateStatuses = useMemo(() => {
+    if (selectedHalls.length !== 1) return [];
+
+    const hall = halls.find((h: any) => h.id === selectedHalls[0]);
+    if (!hall) return [];
+
+    const statuses: any[] = [];
+
+    // Bookings
+    hall.bookings?.forEach((b: any) => {
+      const date = new Date(b.bookingDate);
+      statuses.push({ date, status: "BOOKED" });
+    });
+
+    // Reservations
+    hall.reservations?.forEach((r: any) => {
+      const start = new Date(r.reservedFrom);
+      const end = new Date(r.reservedTo);
+      const current = new Date(start);
+      while (current <= end) {
+        statuses.push({ date: new Date(current), status: "RESERVED" });
+        current.setDate(current.getDate() + 1);
+      }
+    });
+
+    // Out of Orders
+    hall.outOfOrders?.forEach((oo: any) => {
+      const start = new Date(oo.startDate);
+      const end = new Date(oo.endDate);
+      const current = new Date(start);
+      while (current <= end) {
+        statuses.push({ date: new Date(current), status: "OUT_OF_ORDER" });
+        current.setDate(current.getDate() + 1);
+      }
+    });
+
+    return statuses;
+  }, [selectedHalls, halls]);
+
   const reserveMutation = useMutation({
     mutationFn: ({
       hallIds,
@@ -292,7 +394,7 @@ export default function Halls() {
       });
       return;
     }
-   
+
     setForm(prev => ({
       ...prev,
       outOfOrders: [...prev.outOfOrders, { ...newOutOfOrder }]
@@ -777,6 +879,7 @@ export default function Halls() {
 
   // Helper functions for out-of-order periods
   const isCurrentlyOutOfOrder = (hall: Hall) => {
+    if (hall.isOutOfService) return true;
     const now = new Date();
     return hall.outOfOrders?.some(period => {
       const startDate = new Date(period.startDate);
@@ -868,7 +971,7 @@ export default function Halls() {
     return hall.outOfOrders?.some(period => {
       const periodStart = new Date(period.startDate);
       const periodEnd = new Date(period.endDate);
-      return selectedFrom <= periodEnd && selectedTo > periodStart;
+      return selectedFrom <= periodEnd && selectedTo >= periodStart;
     });
   };
 
@@ -1085,31 +1188,61 @@ export default function Halls() {
                         className="mt-2"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Label>Start Date *</Label>
-                        <Input
-                          type="date"
-                          value={newOutOfOrder.startDate}
-                          onChange={(e) =>
-                            setNewOutOfOrder({ ...newOutOfOrder, startDate: e.target.value })
-                          }
-                          className="mt-2"
-                          min={new Date().toISOString().split("T")[0]}
-                        />
-                      </div>
-                      <div>
-                        <Label>End Date *</Label>
-                        <Input
-                          type="date"
-                          value={newOutOfOrder.endDate}
-                          onChange={(e) =>
-                            setNewOutOfOrder({ ...newOutOfOrder, endDate: e.target.value })
-                          }
-                          className="mt-2"
-                          min={newOutOfOrder.startDate || new Date().toISOString().split("T")[0]}
-                        />
-                      </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Maintenance Period *</Label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant={"outline"}
+                            className={cn(
+                              "w-full justify-start text-left font-normal h-12 bg-white",
+                              !newOutOfOrder.startDate && "text-muted-foreground"
+                            )}
+                          >
+                            <Calendar className="mr-2 h-4 w-4" />
+                            {newOutOfOrder.startDate ? (
+                              newOutOfOrder.endDate && newOutOfOrder.endDate !== newOutOfOrder.startDate ? (
+                                <>
+                                  {format(new Date(newOutOfOrder.startDate), "LLL dd, y")} -{" "}
+                                  {format(new Date(newOutOfOrder.endDate), "LLL dd, y")}
+                                </>
+                              ) : (
+                                format(new Date(newOutOfOrder.startDate), "LLL dd, y")
+                              )
+                            ) : (
+                              <span>Pick a date range</span>
+                            )}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <CalendarComponent
+                            initialFocus
+                            mode="range"
+                            defaultMonth={newOutOfOrder.startDate ? new Date(newOutOfOrder.startDate) : new Date()}
+                            selected={{
+                              from: newOutOfOrder.startDate ? new Date(newOutOfOrder.startDate) : undefined,
+                              to: newOutOfOrder.endDate ? new Date(newOutOfOrder.endDate) : undefined,
+                            }}
+                            onSelect={(range: DateRange | undefined) => {
+                              if (range?.from) {
+                                setNewOutOfOrder({
+                                  ...newOutOfOrder,
+                                  startDate: format(range.from, "yyyy-MM-dd"),
+                                  endDate: range.to ? format(range.to, "yyyy-MM-dd") : format(range.from, "yyyy-MM-dd"),
+                                });
+                              } else {
+                                setNewOutOfOrder({ ...newOutOfOrder, startDate: "", endDate: "" });
+                              }
+                            }}
+                            numberOfMonths={1}
+                            disabled={(date) => {
+                              const today = new Date();
+                              today.setHours(0, 0, 0, 0);
+                              return date < today;
+                            }}
+                          />
+                        </PopoverContent>
+                      </Popover>
                     </div>
                     <Button
                       type="button"
@@ -1125,9 +1258,7 @@ export default function Halls() {
 
                 <div className="flex items-center justify-between p-4 border rounded-lg bg-blue-50 dark:bg-blue-950/20">
                   <div>
-                    <Label className="text-base font-medium">
-                      Hall Availability Status
-                    </Label>
+                    <Label className="text-base font-medium">Hall Availability</Label>
                     <p className="text-sm text-muted-foreground">
                       {form.outOfOrders.length > 0
                         ? "Hall has maintenance periods scheduled"
@@ -1214,6 +1345,7 @@ export default function Halls() {
                   <TableHead>Guest Rate</TableHead>
                   <TableHead>Images</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Maintenance</TableHead>
                   <TableHead>Reservations</TableHead>
                   <TableHead>Bookings</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -1257,36 +1389,15 @@ export default function Halls() {
                         )) : "-"}
                       </TableCell>
                       <TableCell>
-                        <div className="space-y-1">
-                          <Badge variant={getHallStatusVariant(hall)}>
-                            {getHallStatus(hall)}
-                          </Badge>
-                          {hall.outOfOrders && hall.outOfOrders.length > 0 && (
-                            <div className="space-y-1 mt-2">
-                              {hall.outOfOrders.slice(0, 2).map((period, idx) => (
-                                <div key={idx} className="text-xs bg-orange-50 px-2 py-1 rounded border border-orange-200">
-                                  <div className="font-medium text-orange-700">
-                                    {formatDate(period.startDate)} - {formatDate(period.endDate)}
-                                  </div>
-                                  <div className="text-orange-600 truncate">
-                                    {period.reason}
-                                  </div>
-                                </div>
-                              ))}
-                              {hall.outOfOrders.length > 2 && (
-                                <div className="text-xs text-muted-foreground">
-                                  +{hall.outOfOrders.length - 2} more periods
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {hasCurrent && (
-                            <div className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-200">
-                              Has event booked today
-                            </div>
-                          )}
-                        </div>
+                        <Badge variant={getHallStatusVariant(hall)}>
+                          {getHallStatus(hall)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <MaintenanceIndicator
+                          outOfOrders={hall.outOfOrders || []}
+                          isOutOfService={!!hall.isOutOfService}
+                        />
                       </TableCell>
                       <TableCell>
                         {upcomingReservations?.length > 0 ? (
@@ -1403,35 +1514,73 @@ export default function Halls() {
           </DialogHeader>
           <div className="flex-1 overflow-hidden flex flex-col">
             {/* Date and Time Selection */}
-            <div className="grid grid-cols-3 gap-4 p-4 bg-muted rounded-lg">
-              <div>
-                <Label>Reserve From *</Label>
-                <Input
-                  type="date"
-                  value={reserveDates.from}
-                  onChange={(e) =>
-                    setReserveDates((prev) => ({
-                      ...prev,
-                      from: e.target.value,
-                    }))
-                  }
-                  className="mt-2"
-                  min={new Date().toISOString().split("T")[0]}
-                />
-              </div>
-              <div>
-                <Label>Reserve To *</Label>
-                <Input
-                  type="date"
-                  value={reserveDates.to}
-                  onChange={(e) =>
-                    setReserveDates((prev) => ({ ...prev, to: e.target.value }))
-                  }
-                  className="mt-2"
-                  min={
-                    reserveDates.from || new Date().toISOString().split("T")[0]
-                  }
-                />
+            <div className="grid grid-cols-3 gap-6 p-4 bg-muted rounded-lg items-end">
+              <div className="col-span-2 space-y-2">
+                <Label className="text-sm font-medium">Reservation Period *</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant={"outline"}
+                      className={cn(
+                        "w-full justify-start text-left font-normal h-12 bg-white",
+                        !reserveDates.from && "text-muted-foreground"
+                      )}
+                    >
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {reserveDates.from ? (
+                        reserveDates.to && reserveDates.to !== reserveDates.from ? (
+                          <>
+                            {format(new Date(reserveDates.from), "LLL dd, y")} -{" "}
+                            {format(new Date(reserveDates.to), "LLL dd, y")}
+                          </>
+                        ) : (
+                          format(new Date(reserveDates.from), "LLL dd, y")
+                        )
+                      ) : (
+                        <span>Pick a date range</span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <CalendarComponent
+                      initialFocus
+                      mode="range"
+                      defaultMonth={reserveDates.from ? new Date(reserveDates.from) : new Date()}
+                      selected={{
+                        from: reserveDates.from ? new Date(reserveDates.from) : undefined,
+                        to: reserveDates.to ? new Date(reserveDates.to) : undefined,
+                      }}
+                      onSelect={(range: DateRange | undefined) => {
+                        if (range?.from) {
+                          setReserveDates({
+                            from: format(range.from, "yyyy-MM-dd"),
+                            to: range.to ? format(range.to, "yyyy-MM-dd") : format(range.from, "yyyy-MM-dd"),
+                          });
+                        } else {
+                          setReserveDates({ from: "", to: "" });
+                        }
+                      }}
+                      numberOfMonths={2}
+                      modifiers={{
+                        today: new Date(),
+                        booked: dateStatuses?.filter((ds: any) => ds.status === "BOOKED").map((ds: any) => ds.date) || [],
+                        reserved: dateStatuses?.filter((ds: any) => ds.status === "RESERVED").map((ds: any) => ds.date) || [],
+                        outOfOrder: dateStatuses?.filter((ds: any) => ds.status === "OUT_OF_ORDER").map((ds: any) => ds.date) || [],
+                      }}
+                      modifiersClassNames={{
+                        today: "border-2 border-primary bg-transparent text-primary hover:bg-transparent hover:text-primary",
+                        booked: "bg-blue-100 border-blue-200 text-blue-900 font-semibold rounded-none",
+                        reserved: "bg-amber-100 border-amber-200 text-amber-900 font-semibold rounded-none",
+                        outOfOrder: "bg-red-100 border-red-200 text-red-900 font-semibold rounded-none",
+                      }}
+                      disabled={(date) => {
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        return date < today;
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
               <div>
                 <Label>Time Slot *</Label>
@@ -1861,31 +2010,61 @@ export default function Halls() {
                     className="mt-2"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Start Date *</Label>
-                    <Input
-                      type="date"
-                      value={editNewOutOfOrder.startDate}
-                      onChange={(e) =>
-                        setEditNewOutOfOrder({ ...editNewOutOfOrder, startDate: e.target.value })
-                      }
-                      className="mt-2"
-                      min={new Date().toISOString().split("T")[0]}
-                    />
-                  </div>
-                  <div>
-                    <Label>End Date *</Label>
-                    <Input
-                      type="date"
-                      value={editNewOutOfOrder.endDate}
-                      onChange={(e) =>
-                        setEditNewOutOfOrder({ ...editNewOutOfOrder, endDate: e.target.value })
-                      }
-                      className="mt-2"
-                      min={editNewOutOfOrder.startDate || new Date().toISOString().split("T")[0]}
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Maintenance Period *</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant={"outline"}
+                        className={cn(
+                          "w-full justify-start text-left font-normal h-12 bg-white",
+                          !editNewOutOfOrder.startDate && "text-muted-foreground"
+                        )}
+                      >
+                        <Calendar className="mr-2 h-4 w-4" />
+                        {editNewOutOfOrder.startDate ? (
+                          editNewOutOfOrder.endDate && editNewOutOfOrder.endDate !== editNewOutOfOrder.startDate ? (
+                            <>
+                              {format(new Date(editNewOutOfOrder.startDate), "LLL dd, y")} -{" "}
+                              {format(new Date(editNewOutOfOrder.endDate), "LLL dd, y")}
+                            </>
+                          ) : (
+                            format(new Date(editNewOutOfOrder.startDate), "LLL dd, y")
+                          )
+                        ) : (
+                          <span>Pick a date range</span>
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <CalendarComponent
+                        initialFocus
+                        mode="range"
+                        defaultMonth={editNewOutOfOrder.startDate ? new Date(editNewOutOfOrder.startDate) : new Date()}
+                        selected={{
+                          from: editNewOutOfOrder.startDate ? new Date(editNewOutOfOrder.startDate) : undefined,
+                          to: editNewOutOfOrder.endDate ? new Date(editNewOutOfOrder.endDate) : undefined,
+                        }}
+                        onSelect={(range: DateRange | undefined) => {
+                          if (range?.from) {
+                            setEditNewOutOfOrder({
+                              ...editNewOutOfOrder,
+                              startDate: format(range.from, "yyyy-MM-dd"),
+                              endDate: range.to ? format(range.to, "yyyy-MM-dd") : format(range.from, "yyyy-MM-dd"),
+                            });
+                          } else {
+                            setEditNewOutOfOrder({ ...editNewOutOfOrder, startDate: "", endDate: "" });
+                          }
+                        }}
+                        numberOfMonths={1}
+                        disabled={(date) => {
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          return date < today;
+                        }}
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <Button
                   type="button"

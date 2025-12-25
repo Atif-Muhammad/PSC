@@ -149,18 +149,9 @@ export function BookingDetailsCard({
 }: BookingDetailsCardProps) {
   const nights = calculateNights(booking.checkIn, booking.checkOut);
   const hasGuestInfo = booking.guestName && booking.pricingType === "guest";
-  const hasOutOfOrders = booking.room.outOfOrders && booking.room.outOfOrders.length > 0;
-
-  // Check if booking overlaps with any out-of-order periods
-  const overlappingOutOfOrders = hasOutOfOrders
-    ? booking.room.outOfOrders.filter(oo => {
-      const bookingStart = new Date(booking.checkIn);
-      const bookingEnd = new Date(booking.checkOut);
-      const ooStart = new Date(oo.startDate);
-      const ooEnd = new Date(oo.endDate);
-      return bookingStart < ooEnd && bookingEnd > ooStart;
-    })
-    : [];
+  const rooms = booking.rooms && booking.rooms.length > 0 ? booking.rooms : booking.room ? [booking.room] : [];
+  const roomNumbers = rooms.map(r => r.roomNumber).join(", ");
+  const roomType = rooms[0]?.roomType?.type || booking.room?.roomType?.type || "N/A";
 
   return (
     <Card className={`overflow-hidden border shadow-sm hover:shadow-md transition-shadow  ${className}`}>
@@ -169,7 +160,7 @@ export function BookingDetailsCard({
           <div>
             <CardTitle className="text-lg flex items-center gap-2">
               <Home className="h-5 w-5 text-blue-600" />
-              Booking #{booking.id} - Room {booking.room.roomNumber}
+              Booking #{booking.id} - {rooms.length > 1 ? "Rooms" : "Room"} {roomNumbers}
             </CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
               Created {formatDate(booking.createdAt)}
@@ -224,12 +215,12 @@ export function BookingDetailsCard({
               </h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Room Number</Label>
-                  <Value className="font-bold">{booking.room.roomNumber}</Value>
+                  <Label>{rooms.length > 1 ? "Room Numbers" : "Room Number"}</Label>
+                  <Value className="font-bold">{roomNumbers}</Value>
                 </div>
                 <div>
                   <Label>Room Type</Label>
-                  <Value>{booking.room.roomType.type}</Value>
+                  <Value>{roomType}</Value>
                 </div>
               </div>
             </div>
@@ -335,8 +326,8 @@ export function BookingDetailsCard({
             <div className="flex flex-wrap gap-4">
               <div className="flex items-center gap-2">
                 <div className={`h-2 w-2 rounded-full ${booking.paymentStatus === "PAID" ? "bg-green-500" :
-                    booking.paymentStatus === "HALF_PAID" ? "bg-yellow-500" :
-                      "bg-red-500"
+                  booking.paymentStatus === "HALF_PAID" ? "bg-yellow-500" :
+                    "bg-red-500"
                   }`} />
                 <span className="text-sm">
                   <span className="font-medium">Payment:</span> {booking.paymentStatus}

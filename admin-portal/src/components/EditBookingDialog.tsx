@@ -18,6 +18,8 @@ interface EditBookingDialogProps {
   onUpdate: () => void;
   onClose: () => void;
   isUpdating: boolean;
+  selectedRoomIds?: string[];
+  onRoomSelection?: (roomId: string, isEdit: boolean) => void;
 }
 
 export const EditBookingDialog = React.memo(({
@@ -31,10 +33,12 @@ export const EditBookingDialog = React.memo(({
   onUpdate,
   onClose,
   isUpdating,
+  selectedRoomIds,
+  onRoomSelection,
 }: EditBookingDialogProps) => {
   return (
     <Dialog open={!!editBooking} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit Room Booking</DialogTitle>
         </DialogHeader>
@@ -96,6 +100,8 @@ export const EditBookingDialog = React.memo(({
           onSearchFocus={() => { }}
           dateStatuses={dateStatuses}
           isEdit={true}
+          selectedRoomIds={selectedRoomIds}
+          onRoomSelection={onRoomSelection ? (id) => onRoomSelection(id, true) : undefined}
         />
 
         <DialogFooter>

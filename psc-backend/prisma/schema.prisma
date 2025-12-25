@@ -92,7 +92,8 @@ enum PaidBy {
 model RoomBooking {
   id            Int      @id @default(autoincrement())
   Membership_No String
-  roomId        Int
+  roomId        Int?     // Keeping as optional for backward compatibility if needed, but primary relation is now 'rooms'
+  rooms         Room[]  // Many-to-many relation
   checkIn       DateTime
   checkOut      DateTime
 
@@ -116,7 +117,7 @@ model RoomBooking {
   refundReturned Boolean @default(false)
 
   member Member @relation(fields: [Membership_No], references: [Membership_No])
-  room   Room   @relation(fields: [roomId], references: [id])
+  // room   Room   @relation(fields: [roomId], references: [id]) // Removed direct single relation mapping validation, logic handled in service
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -140,6 +141,8 @@ model HallBooking {
   pendingAmount  Decimal       @default(0.00) @db.Decimal(30, 2)
   eventType      String        @db.VarChar(255)
   numberOfGuests Int           @default(0)
+  numberOfDays   Int           @default(1)
+  endDate        DateTime      @default(now())
 
   bookingTime BookingOpt @default(NIGHT)
 
@@ -385,6 +388,7 @@ model Hall {
   chargesGuests  Decimal @default(0.00) @db.Decimal(30, 2)
 
   isActive    Boolean          @default(true)
+  isOutOfService Boolean      @default(false)
   outOfOrders HallOutOfOrder[]
 
   images Json @default("[]")

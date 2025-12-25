@@ -14,6 +14,7 @@ import { DateRange } from "react-day-picker";
 import { cn } from "@/lib/utils";
 import { getPakistanDateString, parsePakistanDate } from "@/utils/pakDate";
 import { Button } from "./ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface BookingFormProps {
   form: BookingForm;
@@ -34,6 +35,9 @@ interface BookingFormProps {
   // Date status
   dateStatuses: DateStatus[];
   isEdit?: boolean;
+  // Multi-room support
+  selectedRoomIds?: string[];
+  onRoomSelection?: (roomId: string) => void;
 }
 
 export const BookingFormComponent = React.memo(({
@@ -55,6 +59,9 @@ export const BookingFormComponent = React.memo(({
   // Date status
   dateStatuses,
   isEdit = false,
+  // Multi-room support
+  selectedRoomIds,
+  onRoomSelection,
 }: BookingFormProps) => {
   return (
     <div className="space-y-8">
@@ -114,37 +121,65 @@ export const BookingFormComponent = React.memo(({
             )}
           </div>
 
-          {/* Room Number */}
-          <div>
+          {/* Room Number / Multi-Room Selection */}
+          <div className={selectedRoomIds ? "col-span-1 sm:col-span-2 lg:col-span-2" : ""}>
             <Label className="text-sm font-medium mb-1 block whitespace-nowrap">
-              Room Number *
+              {selectedRoomIds ? `Select Rooms (${selectedRoomIds.length} selected) *` : "Room Number *"}
             </Label>
 
-            <Select
-              value={form.roomId}
-              onValueChange={(val) => onChange("roomId", val)}
-              disabled={!form.roomTypeId || availableRooms.length === 0}
-            >
-              <SelectTrigger className="mt-1">
-                <SelectValue
-                  placeholder={
-                    !form.roomTypeId
-                      ? "Select type first"
-                      : availableRooms.length === 0
-                        ? "No rooms available"
-                        : "Select room"
-                  }
-                />
-              </SelectTrigger>
+            {onRoomSelection && selectedRoomIds ? (
+              <div className="mt-1 border rounded-md p-3 bg-muted/10">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-[150px] overflow-y-auto">
+                  {availableRooms.map((room: Room) => (
+                    <div key={room.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`room-${room.id}`}
+                        checked={selectedRoomIds.includes(room.id.toString())}
+                        onCheckedChange={() => onRoomSelection(room.id.toString())}
+                      />
+                      <Label
+                        htmlFor={`room-${room.id}`}
+                        className="text-xs cursor-pointer font-normal truncate"
+                        title={room.roomNumber}
+                      >
+                        {room.roomNumber}
+                      </Label>
+                    </div>
+                  ))}
+                  {availableRooms.length === 0 && (
+                    <div className="col-span-full text-xs text-muted-foreground italic">
+                      {!form.roomTypeId ? "Select type first" : "No rooms available"}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <Select
+                value={form.roomId}
+                onValueChange={(val) => onChange("roomId", val)}
+                disabled={!form.roomTypeId || availableRooms.length === 0}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue
+                    placeholder={
+                      !form.roomTypeId
+                        ? "Select type first"
+                        : availableRooms.length === 0
+                          ? "No rooms available"
+                          : "Select room"
+                    }
+                  />
+                </SelectTrigger>
 
-              <SelectContent>
-                {availableRooms.map((room: Room) => (
-                  <SelectItem key={room.id} value={room.id.toString()}>
-                    {room.roomNumber}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                <SelectContent>
+                  {availableRooms.map((room: Room) => (
+                    <SelectItem key={room.id} value={room.id.toString()}>
+                      {room.roomNumber}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           {/* Pricing Type */}

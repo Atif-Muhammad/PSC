@@ -73,21 +73,21 @@ export class SchedularService {
             },
           });
 
-          const hallsToMarkInactive = hallsWithActiveOutOfOrder
-            .filter((hall) => hall.isActive)
+          const hallsToMarkOutOfService = hallsWithActiveOutOfOrder
+            .filter((hall) => !hall.isOutOfService)
             .map((hall) => hall.id);
 
-          if (hallsToMarkInactive.length > 0) {
+          if (hallsToMarkOutOfService.length > 0) {
             await tx.hall.updateMany({
-              where: { id: { in: hallsToMarkInactive } },
-              data: { isActive: false },
+              where: { id: { in: hallsToMarkOutOfService } },
+              data: { isOutOfService: true },
             });
-            this.logger.log(`Marked ${hallsToMarkInactive.length} halls as inactive.`);
+            this.logger.log(`Marked ${hallsToMarkOutOfService.length} halls as out of service.`);
           }
 
-          const hallsToReactivate = await tx.hall.findMany({
+          const hallsToRestoreService = await tx.hall.findMany({
             where: {
-              isActive: false,
+              isOutOfService: true,
               outOfOrders: {
                 none: {
                   AND: [{ startDate: { lte: today } }, { endDate: { gt: today } }],
@@ -97,12 +97,12 @@ export class SchedularService {
             select: { id: true },
           });
 
-          if (hallsToReactivate.length > 0) {
+          if (hallsToRestoreService.length > 0) {
             await tx.hall.updateMany({
-              where: { id: { in: hallsToReactivate.map((h) => h.id) } },
-              data: { isActive: true },
+              where: { id: { in: hallsToRestoreService.map((h) => h.id) } },
+              data: { isOutOfService: false },
             });
-            this.logger.log(`Reactivated ${hallsToReactivate.length} halls.`);
+            this.logger.log(`Restored service for ${hallsToRestoreService.length} halls.`);
           }
 
           // ─────────────────────────── LAWNS ───────────────────────────

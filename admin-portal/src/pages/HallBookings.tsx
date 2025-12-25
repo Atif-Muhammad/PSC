@@ -50,10 +50,11 @@ import {
   PricingType,
 } from "@/types/hall-booking.type";
 import {
-  hallInitialFormState,
-  calculateHallPrice,
   calculateHallAccountingValues,
   getAvailableTimeSlots,
+  checkHallConflicts,
+  hallInitialFormState,
+  calculateHallPrice,
 } from "@/utils/hallBookingUtils";
 import { MemberSearchComponent } from "@/components/MemberSearch";
 import { FormInput } from "@/components/FormInputs";
@@ -416,12 +417,14 @@ export default function HallBookings() {
           const newPrice = calculateHallPrice(
             halls,
             field === "hallId" ? value : newForm.hallId,
-            field === "pricingType" ? value : newForm.pricingType
+            field === "pricingType" ? value : newForm.pricingType,
+            field === "numberOfDays" ? value : newForm.numberOfDays
           );
           newForm.totalPrice = newPrice;
 
+
           // AUTO-ADJUST PAYMENT STATUS WHEN HALL/PRICING CHANGES IN EDIT MODE
-          if (isEdit && ["hallId", "pricingType"].includes(field)) {
+          if (isEdit && ["hallId", "pricingType", "numberOfDays"].includes(field)) {
             // Scenario 1: Charges DECREASED (refund scenario)
             if (newPrice < oldPaid) {
               // Keep PAID status - backend will handle refund voucher
@@ -545,6 +548,7 @@ export default function HallBookings() {
       bookingDate: form.bookingDate,
       eventType: form.eventType,
       eventTime: form.eventTime,
+      numberOfDays: form.numberOfDays,
       totalPrice: form.totalPrice.toString(),
       paymentStatus: form.paymentStatus,
       numberOfGuests: form.numberOfGuests || 0,
@@ -617,6 +621,7 @@ export default function HallBookings() {
       bookingDate: editForm.bookingDate,
       eventType: editForm.eventType,
       eventTime: editForm.eventTime,
+      numberOfDays: editForm.numberOfDays,
       numberOfGuests: editForm.numberOfGuests || 0,
       totalPrice: editForm.totalPrice.toString(),
       paymentStatus: editForm.paymentStatus,
@@ -737,6 +742,7 @@ export default function HallBookings() {
         guestName: editBooking.guestName,
         guestContact: editBooking.guestContact,
         remarks: editBooking.remarks || "",
+        numberOfDays: editBooking.numberOfDays || 1,
       };
       setEditForm(newEditForm);
     }
@@ -906,6 +912,17 @@ export default function HallBookings() {
                       <SelectItem value="guest">Guest</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+                <div>
+                  <Label>Number of Days *</Label>
+                  <Input
+                    type="number"
+                    value={form.numberOfDays || ""}
+                    onChange={(e) => handleFormChange("numberOfDays", parseInt(e.target.value) || 1)}
+                    className="mt-2"
+                    placeholder="Enter number of days"
+                    min="1"
+                  />
                 </div>
                 <div>
                   <Label>Number of Guests *</Label>
@@ -1121,6 +1138,70 @@ export default function HallBookings() {
                 </div>
               </div>
             </div>
+
+            <div>
+              <Label>Number of Days *</Label>
+              <Input
+                type="number"
+                value={editForm.numberOfDays || ""}
+                onChange={(e) => handleEditFormChange("numberOfDays", parseInt(e.target.value) || 1)}
+                className="mt-2"
+                placeholder="Enter number of days"
+                min="1"
+              />
+            </div>
+
+            {/* Conflict Warning */}
+            {editForm.hallId && editForm.bookingDate && editForm.numberOfDays > 0 && editForm.eventTime && (
+              <div className="md:col-span-2">
+                {(() => {
+                  const conflict = checkHallConflicts(
+                    editForm.hallId,
+                    editForm.bookingDate,
+                    editForm.numberOfDays,
+                    editForm.eventTime,
+                    bookings,
+                    halls,
+                    reservations,
+                    editBooking?.id
+                  );
+                  if (conflict.hasConflict) {
+                    return (
+                      <div className="p-3 bg-red-50 border border-red-200 rounded-md flex items-center gap-2 text-red-700 text-sm">
+                        <XCircle className="h-4 w-4" />
+                        <span>{conflict.message}</span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+            )}
+            {/* Conflict Warning Ends */}
+            {form.hallId && form.bookingDate && form.numberOfDays > 0 && form.eventTime && (
+              <div className="md:col-span-2">
+                {(() => {
+                  const conflict = checkHallConflicts(
+                    form.hallId,
+                    form.bookingDate,
+                    form.numberOfDays,
+                    form.eventTime,
+                    bookings,
+                    halls,
+                    reservations
+                  );
+                  if (conflict.hasConflict) {
+                    return (
+                      <div className="p-3 bg-red-50 border border-red-200 rounded-md flex items-center gap-2 text-red-700 text-sm">
+                        <XCircle className="h-4 w-4" />
+                        <span>{conflict.message}</span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+            )}
 
             <div>
               <Label>Hall *</Label>

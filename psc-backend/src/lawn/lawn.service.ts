@@ -392,10 +392,10 @@ export class LawnService {
         return (startDate < resEnd && endDate > resStart);
       });
 
-      // Check for conflicting bookings: Booking on endDate is allowed (checkout day)
+      // Check for conflicting bookings: Booking on endDate is NOT allowed (inclusive)
       const conflictingBookings = lawn.bookings.filter((booking) => {
         const bookingDate = new Date(booking.bookingDate);
-        return bookingDate >= startDate && bookingDate < endDate;
+        return bookingDate >= startDate && bookingDate <= endDate;
       });
 
       if (conflictingReservations.length > 0 || conflictingBookings.length > 0) {
@@ -591,8 +591,8 @@ export class LawnService {
             outOfOrders: {
               some: {
                 AND: [
-                  { startDate: { lt: reservedTo } },
-                  { endDate: { gt: reservedFrom } },
+                  { startDate: { lte: reservedTo } },
+                  { endDate: { gte: reservedFrom } },
                 ],
               },
             },
@@ -601,8 +601,8 @@ export class LawnService {
             outOfOrders: {
               where: {
                 AND: [
-                  { startDate: { lt: reservedTo } },
-                  { endDate: { gt: reservedFrom } },
+                  { startDate: { lte: reservedTo } },
+                  { endDate: { gte: reservedFrom } },
                 ],
               },
             },
@@ -629,7 +629,7 @@ export class LawnService {
             lawnId: { in: lawnIds },
             bookingDate: {
               gte: reservedFrom,
-              lt: reservedTo,
+              lte: reservedTo,
             },
             bookingTime: timeSlot as any,
           },
@@ -651,8 +651,8 @@ export class LawnService {
         const conflictingReservations = await prisma.lawnReservation.findMany({
           where: {
             lawnId: { in: lawnIds },
-            reservedFrom: { lt: reservedTo },
-            reservedTo: { gt: reservedFrom },
+            reservedFrom: { lte: reservedTo },
+            reservedTo: { gte: reservedFrom },
             timeSlot: timeSlot,
           },
           include: { lawn: { include: { lawnCategory: true } } },

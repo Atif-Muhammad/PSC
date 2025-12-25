@@ -70,7 +70,16 @@ export const BookingsTable = React.memo(({
                 <TableCell className="font-medium">
                   {booking.Membership_No}
                 </TableCell>
-                <TableCell>{booking.room?.roomNumber}</TableCell>
+                <TableCell>
+                  {booking.rooms && booking.rooms.length > 0 ? (
+                    <>
+                      {booking.rooms.slice(0, 3).map((r: any) => r.roomNumber).join(", ")}
+                      {booking.rooms.length > 3 && ` +${booking.rooms.length - 3}`}
+                    </>
+                  ) : (
+                    booking.room?.roomNumber || "N/A"
+                  )}
+                </TableCell>
                 <TableCell>
                   {new Date(booking.checkIn).toLocaleString()}
                 </TableCell>
@@ -89,7 +98,7 @@ export const BookingsTable = React.memo(({
                       size="icon"
                       onClick={() => onDetail(booking)}
                       title="Booking Details">
-                        <NotepadText/>
+                      <NotepadText />
                     </Button>
                     <Button
                       variant="ghost"
@@ -101,15 +110,15 @@ export const BookingsTable = React.memo(({
                     </Button>
                     {(booking.paymentStatus === "PAID" ||
                       booking.paymentStatus === "HALF_PAID") && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => onViewVouchers(booking)}
-                        title="View Vouchers"
-                      >
-                        <Receipt className="h-4 w-4" />
-                      </Button>
-                    )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => onViewVouchers(booking)}
+                          title="View Vouchers"
+                        >
+                          <Receipt className="h-4 w-4" />
+                        </Button>
+                      )}
                     <Button
                       variant="ghost"
                       size="icon"

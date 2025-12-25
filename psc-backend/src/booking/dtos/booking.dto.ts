@@ -44,6 +44,8 @@ export class BookingDto {
     guestsCount?: string | null
     @IsOptional()
     numberOfGuests?: number
+    @IsOptional()
+    numberOfDays?: number
 
     @IsOptional()
     paidBy?: "GUEST" | "MEMBER"

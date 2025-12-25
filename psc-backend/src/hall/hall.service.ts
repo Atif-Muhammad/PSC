@@ -14,7 +14,7 @@ export class HallService {
   constructor(
     private prismaService: PrismaService,
     private cloudinaryService: CloudinaryService,
-  ) {}
+  ) { }
 
   // ─────────────────────────── HALLS ───────────────────────────
   async getHalls() {
@@ -71,21 +71,19 @@ export class HallService {
 
     // Parse out of order periods if provided
     let outOfOrderPeriodsData: any[] = [];
-    if (payload.outOfOrders && Array.isArray(payload.outOfOrders)) {
-      outOfOrderPeriodsData = payload.outOfOrders.map((period) => ({
-        reason: period.reason,
-        startDate: new Date(period.startDate),
-        endDate: new Date(period.endDate),
-      }));
+    if (payload.outOfOrders) {
+      const parsed = typeof payload.outOfOrders === 'string'
+        ? JSON.parse(payload.outOfOrders)
+        : payload.outOfOrders;
+
+      if (Array.isArray(parsed)) {
+        outOfOrderPeriodsData = parsed.map((period) => ({
+          reason: period.reason,
+          startDate: new Date(period.startDate),
+          endDate: new Date(period.endDate),
+        }));
+      }
     }
-
-    // Check if hall should be active based on current date and out-of-order periods
-    const now = new Date();
-    const hasActiveOutOfOrder = outOfOrderPeriodsData.some(
-      (period) => period.startDate <= now && period.endDate >= now,
-    );
-
-    const shouldBeActive = !hasActiveOutOfOrder;
 
     return await this.prismaService.hall.create({
       data: {
@@ -94,7 +92,7 @@ export class HallService {
         capacity: Number(payload.capacity),
         chargesGuests: Number(payload.chargesGuests),
         chargesMembers: Number(payload.chargesMembers),
-        isActive: shouldBeActive,
+        isActive: payload.isActive !== undefined ? (typeof payload.isActive === 'string' ? payload.isActive === 'true' : payload.isActive) : true,
         images: uploadedImages,
         outOfOrders: {
           create: outOfOrderPeriodsData,
@@ -135,8 +133,8 @@ export class HallService {
 
     const filteredExistingImages = Array.isArray(hall.images)
       ? hall.images?.filter((img: any) =>
-          keepImagePublicIds.includes(img.publicId),
-        )
+        keepImagePublicIds.includes(img.publicId),
+      )
       : [];
 
     const newUploadedImages: any[] = [];
@@ -191,15 +189,6 @@ export class HallService {
       }
     }
 
-    // Determine if hall should be active based on current date
-    const hasActiveOutOfOrder = newOutOfOrderPeriods.some((period) => {
-      const startDate = new Date(period.startDate);
-      const endDate = new Date(period.endDate);
-      return startDate <= now && endDate >= now;
-    });
-
-    const shouldBeActive = !hasActiveOutOfOrder;
-
     // Perform transaction to update hall and out-of-order periods
     return await this.prismaService.$transaction(async (prisma) => {
       // Delete all existing out-of-order periods
@@ -216,7 +205,7 @@ export class HallService {
           capacity: Number(payload.capacity) || 0,
           chargesMembers: Number(payload.chargesMembers) || 0,
           chargesGuests: Number(payload.chargesGuests) || 0,
-          isActive: payload.isActive == 'true' || payload.isActive === true,
+          isActive: payload.isActive !== undefined ? (typeof payload.isActive === 'string' ? payload.isActive === 'true' : payload.isActive) : undefined,
           images: finalImages,
         },
       });
@@ -384,8 +373,8 @@ export class HallService {
                 // Check if any out-of-order period overlaps with reservation period
                 // MODIFIED: Allow checkout date to equal out-of-order start date
                 AND: [
-                  { startDate: { lt: reservedTo } }, // out-of-order starts before reservation ends (allow equal)
-                  { endDate: { gt: reservedFrom } }, // out-of-order ends after reservation starts
+                  { startDate: { lte: reservedTo } }, // out-of-order starts on or before reservation ends
+                  { endDate: { gte: reservedFrom } }, // out-of-order ends on or after reservation starts
                 ],
               },
             },
@@ -395,8 +384,8 @@ export class HallService {
               where: {
                 // MODIFIED: Same logic here
                 AND: [
-                  { startDate: { lt: reservedTo } }, // starts before reservation ends
-                  { endDate: { gt: reservedFrom } }, // ends after reservation starts
+                  { startDate: { lte: reservedTo } }, // starts on or before reservation ends
+                  { endDate: { gte: reservedFrom } }, // ends on or after reservation starts
                 ],
               },
             },
@@ -443,7 +432,7 @@ export class HallService {
                 // MODIFIED: Allow checkout date to equal booking date
                 bookingDate: {
                   gte: reservedFrom,
-                  lt: reservedTo, // Changed from lte to lt to allow equal
+                  lte: reservedTo, // Changed from lt to lte to be inclusive
                 },
                 bookingTime: timeSlot as any, // Strict time slot check
               },
@@ -471,8 +460,8 @@ export class HallService {
               {
                 // Reservation overlaps with new reservation period
                 // MODIFIED: Allow checkout date to equal start of another reservation
-                reservedFrom: { lt: reservedTo }, // existing reservation starts before new reservation ends
-                reservedTo: { gt: reservedFrom }, // existing reservation ends after new reservation starts
+                reservedFrom: { lte: reservedTo }, // existing reservation starts on or before new reservation ends
+                reservedTo: { gte: reservedFrom }, // existing reservation ends on or after new reservation starts
                 timeSlot: timeSlot, // Same time slot conflict
               },
             ],
@@ -514,8 +503,8 @@ export class HallService {
                   hallId: hall.id,
                   // MODIFIED: Use same logic for inactive hall check
                   AND: [
-                    { startDate: { lt: reservedTo } },
-                    { endDate: { gt: reservedFrom } },
+                    { startDate: { lte: reservedTo } },
+                    { endDate: { gte: reservedFrom } },
                   ],
                 },
               });

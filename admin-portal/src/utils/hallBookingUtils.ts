@@ -1,4 +1,4 @@
-import { differenceInCalendarDays, addDays } from "date-fns";
+import { differenceInCalendarDays, addDays, format } from "date-fns";
 import {
   Hall,
   HallBooking,
@@ -28,22 +28,26 @@ export const hallInitialFormState: HallBookingForm = {
   paidBy: "MEMBER",
   guestName: "",
   guestContact: "",
+  numberOfDays: 1,
   remarks: "",
 };
 
 export const calculateHallPrice = (
   halls: Hall[],
   hallId: string,
-  pricingType: PricingType
+  pricingType: PricingType,
+  numberOfDays: number = 1
 ) => {
   if (!hallId) return 0;
 
   const hall = halls.find((h) => h.id.toString() === hallId);
   if (!hall) return 0;
 
-  return pricingType === "member"
+  const basePrice = pricingType === "member"
     ? Number(hall.chargesMembers || 0)
     : Number(hall.chargesGuests || 0);
+
+  return basePrice * numberOfDays;
 };
 
 export const calculateHallAccountingValues = (
@@ -122,13 +126,22 @@ export const getHallDateTimeStatuses = (
 
 // Check if hall is out of order for a specific date
 export const isHallOutOfOrderForDate = (hall: Hall, date: Date): boolean => {
-  if (!hall.isOutOfService && !hall.outOfServiceFrom && !hall.outOfServiceTo) {
-    return false;
-  }
-
   const targetDate = new Date(date);
   targetDate.setHours(0, 0, 0, 0);
 
+  // Check new outOfOrders relation
+  if (hall.outOfOrders && Array.isArray(hall.outOfOrders)) {
+    const isOut = hall.outOfOrders.some(period => {
+      const start = new Date(period.startDate);
+      const end = new Date(period.endDate);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(0, 0, 0, 0);
+      return targetDate >= start && targetDate <= end;
+    });
+    if (isOut) return true;
+  }
+
+  // Fallback to legacy fields or manual flag
   if (hall.outOfServiceFrom && hall.outOfServiceTo) {
     const outOfServiceFrom = new Date(hall.outOfServiceFrom);
     const outOfServiceTo = new Date(hall.outOfServiceTo);
@@ -136,7 +149,7 @@ export const isHallOutOfOrderForDate = (hall: Hall, date: Date): boolean => {
     outOfServiceFrom.setHours(0, 0, 0, 0);
     outOfServiceTo.setHours(0, 0, 0, 0);
 
-    return targetDate >= outOfServiceFrom && targetDate <= outOfServiceTo;
+    if (targetDate >= outOfServiceFrom && targetDate <= outOfServiceTo) return true;
   }
 
   return hall.isOutOfService;
@@ -225,4 +238,76 @@ export const getAvailableTimeSlots = (
   return allTimeSlots.filter(slot =>
     !unavailableSlots.includes(slot)
   );
+};
+
+export const checkHallConflicts = (
+  hallId: string,
+  startDate: string,
+  numberOfDays: number,
+  timeSlot: string,
+  bookings: HallBooking[],
+  halls: Hall[],
+  reservations: any[] = [],
+  excludeBookingId?: string
+) => {
+  const hall = halls.find(h => h.id.toString() === hallId);
+  if (!hall) return { hasConflict: false };
+
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+
+  for (let i = 0; i < numberOfDays; i++) {
+    const targetDate = addDays(start, i);
+    const dateString = targetDate.toISOString().split('T')[0];
+
+    // 1. Check Out of Order
+    if (isHallOutOfOrderForDate(hall, targetDate)) {
+      return {
+        hasConflict: true,
+        type: 'OUT_OF_ORDER',
+        date: dateString,
+        message: `Hall is Out of Service on ${format(targetDate, "MMM d, yyyy")}`
+      };
+    }
+
+    // 2. Check Bookings
+    const isBooked = bookings.some(b => {
+      if (excludeBookingId && b.id.toString() === excludeBookingId) return false;
+      const bDate = new Date(b.bookingDate).toISOString().split('T')[0];
+      return b.hallId?.toString() === hallId && bDate === dateString && b.bookingTime === timeSlot;
+    });
+
+    if (isBooked) {
+      return {
+        hasConflict: true,
+        type: 'BOOKED',
+        date: dateString,
+        message: `Hall is already Booked for ${timeSlot} on ${format(targetDate, "MMM d, yyyy")}`
+      };
+    }
+
+    // 3. Check Reservations
+    const isReserved = reservations.some(r => {
+      const rStart = new Date(r.reservedFrom);
+      const rEnd = new Date(r.reservedTo);
+      rStart.setHours(0, 0, 0, 0);
+      rEnd.setHours(0, 0, 0, 0);
+
+      const d = new Date(targetDate);
+      d.setHours(0, 0, 0, 0);
+
+      return r.hallId?.toString() === hallId && d >= rStart && d <= rEnd && r.timeSlot === timeSlot;
+    });
+
+    if (isReserved) {
+      return {
+        hasConflict: true,
+        type: 'RESERVED',
+        date: dateString,
+        message: `Hall is Reserved for ${timeSlot} on ${format(targetDate, "MMM d, yyyy")}`
+      };
+    }
+  }
+
+  return { hasConflict: false };
 };

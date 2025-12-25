@@ -533,11 +533,11 @@ export default function Lawns() {
                               const hasMaintenance = l.outOfOrders?.some(oo => {
                                 const s = getUTCMidnight(oo.startDate);
                                 const e = getUTCMidnight(oo.endDate);
-                                return s < mTo && e > mFrom;
+                                return s <= mTo && e >= mFrom;
                               });
                               const hasBooking = l.bookings?.some(b => {
                                 const d = getUTCMidnight(b.bookingDate);
-                                return d >= mFrom && d < mTo && b.bookingTime === selectedTimeSlot;
+                                return d >= mFrom && d <= mTo && b.bookingTime === selectedTimeSlot;
                               });
                               return !hasMaintenance && !hasBooking;
                             })
@@ -567,19 +567,19 @@ export default function Lawns() {
                   const overlappingReservation = l.reservations?.find(r => {
                     const rFrom = getUTCMidnight(r.reservedFrom);
                     const rTo = getUTCMidnight(r.reservedTo);
-                    return rFrom < mTo && rTo > mFrom && r.timeSlot === selectedTimeSlot &&
+                    return rFrom <= mTo && rTo >= mFrom && r.timeSlot === selectedTimeSlot &&
                       !(rFrom === mFrom && rTo === mTo);
                   });
 
                   const hasMaintenance = l.outOfOrders?.find(oo => {
                     const s = getUTCMidnight(oo.startDate);
                     const e = getUTCMidnight(oo.endDate);
-                    return s < mTo && e > mFrom;
+                    return s <= mTo && e >= mFrom;
                   });
 
                   const hasBooking = l.bookings?.find(b => {
                     const d = getUTCMidnight(b.bookingFrom);
-                    return d >= mFrom && d < mTo && b.timeSlot === selectedTimeSlot;
+                    return d >= mFrom && d <= mTo && b.timeSlot === selectedTimeSlot;
                   });
 
                   const isConflicted = hasMaintenance || hasBooking || overlappingReservation;
