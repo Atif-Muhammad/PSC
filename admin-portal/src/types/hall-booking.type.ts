@@ -24,6 +24,8 @@ export interface HallBooking {
   guestName?: "",
   guestContact?: "",
   numberOfDays?: number;
+  endDate?: string;
+  bookingDetails?: { date: string; timeSlot: string; eventType?: string }[];
   remarks?: string;
 
   member?: {
@@ -90,7 +92,9 @@ export interface HallBookingForm {
   paidBy?: "MEMBER" | "GUEST";
   guestName?: "",
   guestContact?: ""
+  endDate: string;
   numberOfDays: number;
+  bookingDetails: { date: string; timeSlot: string; eventType?: string }[];
   remarks?: string;
 }
 

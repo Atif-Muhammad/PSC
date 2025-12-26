@@ -143,6 +143,7 @@ model HallBooking {
   numberOfGuests Int           @default(0)
   numberOfDays   Int           @default(1)
   endDate        DateTime      @default(now())
+  bookingDetails Json          @default("[]") // For storing detailed date-wise slots: [{ date: "2024-01-01", timeSlot: "MORNING" }]
 
   bookingTime BookingOpt @default(NIGHT)
 
@@ -369,6 +370,8 @@ model roomHoldings {
   id Int @id @unique @default(autoincrement())
   onHold       Boolean           @default(false)
   holdExpiry   DateTime?
+  checkIn      DateTime? // Added for exact date holding
+  checkOut     DateTime? // Added for exact date holding
   holdBy       String?
   holdMember   Member?           @relation(fields: [holdBy], references: [Membership_No])
   roomId Int

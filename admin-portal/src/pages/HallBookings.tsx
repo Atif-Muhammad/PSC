@@ -20,6 +20,9 @@ import {
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import {
@@ -55,11 +58,12 @@ import {
   checkHallConflicts,
   hallInitialFormState,
   calculateHallPrice,
+  parseLocalDate,
 } from "@/utils/hallBookingUtils";
 import { MemberSearchComponent } from "@/components/MemberSearch";
 import { FormInput } from "@/components/FormInputs";
 import { UnifiedDatePicker } from "@/components/UnifiedDatePicker";
-import { format } from "date-fns";
+import { format, differenceInCalendarDays, addDays } from "date-fns";
 import { HallBookingDetailsCard } from "@/components/details/HallBookingDets";
 
 
@@ -196,6 +200,166 @@ const HallPaymentSection = React.memo(
 
 HallPaymentSection.displayName = "HallPaymentSection";
 
+const IndividualTimeSlotSelector = ({
+  bookingDetails,
+  hallId,
+  bookings,
+  halls,
+  reservations,
+  onChange,
+  editBookingId,
+  defaultEventType
+}: {
+  bookingDetails: { date: string; timeSlot: string; eventType?: string }[];
+  hallId: string;
+  bookings: HallBooking[];
+  halls: Hall[];
+  reservations: any[];
+  onChange: (newDetails: { date: string; timeSlot: string; eventType?: string }[]) => void;
+  editBookingId?: string;
+  defaultEventType?: string;
+}) => {
+  if (!bookingDetails) return null;
+
+  // Group details by date for easier UI rendering
+  const dates = Array.from(new Set(bookingDetails.map(d => d.date))).sort();
+
+  const toggleSlot = (date: string, slot: string) => {
+    const existingIndex = bookingDetails.findIndex(d => d.date === date && d.timeSlot === slot);
+    let newDetails = [...bookingDetails];
+
+    if (existingIndex > -1) {
+      // Don't allow removing the last slot for this date - at least one must remain
+      const slotsForThisDay = bookingDetails.filter(d => d.date === date);
+      if (slotsForThisDay.length <= 1) {
+        // This is the last slot for this day, don't remove it
+        return;
+      }
+      newDetails.splice(existingIndex, 1);
+    } else {
+      // Find default event type for this day or from others
+      const sameDayDetail = bookingDetails.find(d => d.date === date);
+      newDetails.push({
+        date,
+        timeSlot: slot,
+        eventType: sameDayDetail?.eventType || defaultEventType || "wedding"
+      });
+    }
+    onChange(newDetails.sort((a, b) => a.date.localeCompare(b.date)));
+  };
+
+  const updateEventType = (date: string, slot: string, type: string) => {
+    const newDetails = bookingDetails.map(d =>
+      (d.date === date && d.timeSlot === slot) ? { ...d, eventType: type } : d
+    );
+    onChange(newDetails);
+  };
+
+  const eventTypes = [
+    { value: "mehandi", label: "Mehandi" },
+    { value: "barat", label: "Barat" },
+    { value: "walima", label: "Walima" },
+    { value: "birthday", label: "Birthday" },
+    { value: "corporate", label: "Corporate" },
+    { value: "wedding", label: "Wedding" },
+    { value: "other", label: "Other" },
+  ];
+
+  return (
+    <div className="col-span-full mt-2 space-y-4 p-4 bg-muted/10 rounded-xl border border-muted/30">
+      <h4 className="text-sm font-semibold flex items-center gap-2 text-foreground/80">
+        <NotepadText className="h-4 w-4 text-blue-500" />
+        Booking Schedule & Time Slots
+      </h4>
+      <div className="space-y-4">
+        {dates.map((dateStr) => {
+          const date = parseLocalDate(dateStr);
+          const dayDetails = bookingDetails.filter(d => d.date === dateStr);
+
+          const otherBookings = editBookingId
+            ? bookings.filter(b => b.id?.toString() !== editBookingId?.toString())
+            : bookings;
+
+          const availableSlots = getAvailableTimeSlots(
+            hallId,
+            dateStr,
+            otherBookings,
+            halls,
+            reservations
+          );
+
+          return (
+            <div key={dateStr} className="p-3 bg-background rounded-lg border shadow-sm space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-bold text-foreground">
+                  {format(date, "EEEE, MMMM do")}
+                </span>
+                <div className="flex gap-1">
+                  {["MORNING", "EVENING", "NIGHT"].map(slot => {
+                    const isActive = dayDetails.some(d => d.timeSlot === slot);
+                    const isAvailable = availableSlots.includes(slot) || isActive;
+
+                    return (
+                      <Button
+                        key={slot}
+                        type="button"
+                        variant={isActive ? "default" : "outline"}
+                        size="sm"
+                        className={`text-[10px] h-7 px-2 uppercase font-bold tracking-tighter ${!isAvailable ? "opacity-40 cursor-not-allowed" : ""
+                          }`}
+                        disabled={!isAvailable}
+                        onClick={() => toggleSlot(dateStr, slot)}
+                      >
+                        {slot.charAt(0)}{slot.slice(1).toLowerCase()}
+                        {!isAvailable && " (X)"}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {dayDetails.length > 0 && (
+                <div className="space-y-2 pl-2 border-l-2 border-blue-100">
+                  {dayDetails.map((detail, idx) => (
+                    <div key={idx} className="flex items-center gap-3">
+                      <div className="flex items-center gap-1.5 min-w-[80px]">
+                        <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-bold uppercase">
+                          {detail.timeSlot}
+                        </span>
+                      </div>
+                      <Select
+                        value={detail.eventType}
+                        onValueChange={(val) => updateEventType(dateStr, detail.timeSlot, val)}
+                      >
+                        <SelectTrigger className="h-8 text-xs bg-muted/20 border-none w-[140px]">
+                          <SelectValue placeholder="Event Type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {eventTypes.map(t => (
+                            <SelectItem key={t.value} value={t.value} className="text-xs">
+                              {t.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {dayDetails.length === 0 && (
+                <p className="text-[10px] text-muted-foreground italic pl-2">
+                  No slots selected for this day. Click buttons above to add.
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 export default function HallBookings() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editBooking, setEditBooking] = useState<HallBooking | null>(null);
@@ -267,7 +431,7 @@ export default function HallBookings() {
     if (!editForm.hallId || !editForm.bookingDate) return [];
 
     // Filter out the current booking being edited so its own time slot isn't marked as unavailable
-    const otherBookings = bookings.filter(b => b.id !== editBooking?.id);
+    const otherBookings = bookings.filter(b => b.id?.toString() !== editBooking?.id?.toString());
 
     return getAvailableTimeSlots(
       editForm.hallId,
@@ -400,7 +564,6 @@ export default function HallBookings() {
     },
   });
 
-  // Unified form change handler
   const createFormChangeHandler = (isEdit: boolean) => {
     return (field: keyof HallBookingForm, value: any) => {
       const setFormFn = isEdit ? setEditForm : setForm;
@@ -408,70 +571,55 @@ export default function HallBookings() {
       setFormFn((prev) => {
         const newForm = { ...prev, [field]: value };
 
-        // Recalculate price when relevant fields change
-        if (["hallId", "pricingType"].includes(field)) {
-          const oldTotal = prev.totalPrice || 0;
-          const oldPaid = prev.paidAmount || 0;
-          const oldPaymentStatus = prev.paymentStatus;
-
-          const newPrice = calculateHallPrice(
+        // Handle hall price recalculation
+        if (["hallId", "pricingType", "bookingDate", "endDate"].includes(field as string)) {
+          newForm.totalPrice = calculateHallPrice(
             halls,
             field === "hallId" ? value : newForm.hallId,
             field === "pricingType" ? value : newForm.pricingType,
-            field === "numberOfDays" ? value : newForm.numberOfDays
+            newForm.bookingDetails
           );
-          newForm.totalPrice = newPrice;
 
+          // Update paid/pending amounts based on new total
+          const accounting = calculateHallAccountingValues(
+            newForm.paymentStatus as PaymentStatus,
+            newForm.totalPrice,
+            newForm.paidAmount
+          );
+          newForm.paidAmount = accounting.paid;
+          newForm.pendingAmount = accounting.pendingAmount;
 
           // AUTO-ADJUST PAYMENT STATUS WHEN HALL/PRICING CHANGES IN EDIT MODE
-          if (isEdit && ["hallId", "pricingType", "numberOfDays"].includes(field)) {
-            // Scenario 1: Charges DECREASED (refund scenario)
-            if (newPrice < oldPaid) {
-              // Keep PAID status - backend will handle refund voucher
+          if (isEdit) {
+            const oldPaid = prev.paidAmount || 0;
+            const oldPaymentStatus = prev.paymentStatus;
+
+            if (newForm.totalPrice < oldPaid) {
               newForm.paymentStatus = "PAID";
-              newForm.paidAmount = newPrice;
+              newForm.paidAmount = newForm.totalPrice;
               newForm.pendingAmount = 0;
-            }
-            // Scenario 2: Charges INCREASED and was previously PAID
-            else if (newPrice > oldPaid && oldPaymentStatus === "PAID") {
-              // Auto-change to HALF_PAID
+            } else if (newForm.totalPrice > oldPaid && oldPaymentStatus === "PAID") {
               newForm.paymentStatus = "HALF_PAID";
-              newForm.paidAmount = oldPaid; // Keep the amount already paid
-              newForm.pendingAmount = newPrice - oldPaid;
+              newForm.pendingAmount = newForm.totalPrice - newForm.paidAmount;
             }
-            // Scenario 3: Charges INCREASED but was HALF_PAID or UNPAID
-            else if (newPrice > oldTotal && (oldPaymentStatus === "HALF_PAID" || oldPaymentStatus === "UNPAID")) {
-              // Keep current status, just update amounts
-              newForm.paidAmount = oldPaid;
-              newForm.pendingAmount = newPrice - oldPaid;
-            }
-            // Scenario 4: Charges UNCHANGED or other cases
-            else {
-              // Recalculate accounting values normally
-              const accounting = calculateHallAccountingValues(
-                newForm.paymentStatus as PaymentStatus,
-                newPrice,
-                newForm.paidAmount
-              );
-              newForm.paidAmount = accounting.paid;
-              newForm.pendingAmount = accounting.pendingAmount;
-            }
-          } else {
-            // Not in edit mode - use normal recalculation
-            const accounting = calculateHallAccountingValues(
-              newForm.paymentStatus as PaymentStatus,
-              newPrice,
-              newForm.paidAmount
-            );
-            newForm.paidAmount = accounting.paid;
-            newForm.pendingAmount = accounting.pendingAmount;
+          }
+        }
+
+        // Handle duration change
+        if (field === "numberOfDays") {
+          if (newForm.bookingDate) {
+            const startDate = parseLocalDate(newForm.bookingDate);
+            const newEndDate = addDays(startDate, Math.max(1, value) - 1);
+            newForm.endDate = format(newEndDate, "yyyy-MM-dd");
+            // Set field to "endDate" to trigger the date sync logic below
+            field = "endDate" as any;
           }
         }
 
         // Handle payment status changes
         if (field === "paymentStatus") {
           const accounting = calculateHallAccountingValues(
-            value,
+            value as PaymentStatus,
             newForm.totalPrice,
             newForm.paidAmount
           );
@@ -479,14 +627,57 @@ export default function HallBookings() {
           newForm.pendingAmount = accounting.pendingAmount;
         }
 
-        // Handle paid amount changes for half-paid status
-        if (field === "paidAmount" && newForm.paymentStatus === "HALF_PAID") {
+        // Handle paid amount changes
+        if (field === "paidAmount") {
           if (value > newForm.totalPrice) {
-            // Don't show toast here as it interrupts typing
-            // Just cap the value at totalPrice
             value = newForm.totalPrice;
+            newForm.paidAmount = value;
           }
           newForm.pendingAmount = newForm.totalPrice - value;
+        }
+
+        // Update bookingDetails when dates or primary event type change
+        if (["bookingDate", "endDate", "eventType", "numberOfDays"].includes(field as string)) {
+          const start = field === "bookingDate" ? value : newForm.bookingDate;
+          const end = field === "endDate" ? value : newForm.endDate;
+          const currentPrimaryEventType = field === "eventType" ? value : newForm.eventType;
+          const defaultSlot = "EVENING";
+
+          if (start) {
+            const startDate = parseLocalDate(start);
+            const endDate = end ? parseLocalDate(end) : startDate;
+            const days = Math.abs(differenceInCalendarDays(endDate, startDate)) + 1;
+            newForm.numberOfDays = days;
+
+            const newDetails: { date: string; timeSlot: string; eventType?: string }[] = [];
+            for (let i = 0; i < days; i++) {
+              const currentCheckDate = addDays(startDate, i);
+              const dateStr = format(currentCheckDate, "yyyy-MM-dd");
+
+              const existingDetails = prev.bookingDetails?.filter(d => d.date === dateStr);
+
+              if (existingDetails && existingDetails.length > 0) {
+                existingDetails.forEach(d => {
+                  newDetails.push({
+                    ...d,
+                    date: dateStr, // Ensure standard format
+                    eventType: field === "eventType" ? value : (d.eventType || currentPrimaryEventType)
+                  });
+                });
+              } else {
+                newDetails.push({
+                  date: dateStr,
+                  timeSlot: defaultSlot,
+                  eventType: currentPrimaryEventType
+                });
+              }
+            }
+            newForm.bookingDetails = newDetails;
+
+            // Recalculate price as slot count might have changed
+            newForm.totalPrice = calculateHallPrice(halls, newForm.hallId, newForm.pricingType as PricingType, newForm.bookingDetails);
+            newForm.pendingAmount = newForm.totalPrice - newForm.paidAmount;
+          }
         }
 
         return newForm;
@@ -517,7 +708,7 @@ export default function HallBookings() {
     }
 
     // Validate booking date
-    const bookingDate = new Date(form.bookingDate);
+    const bookingDate = parseLocalDate(form.bookingDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -547,8 +738,8 @@ export default function HallBookings() {
       entityId: form.hallId,
       bookingDate: form.bookingDate,
       eventType: form.eventType,
-      eventTime: form.eventTime,
-      numberOfDays: form.numberOfDays,
+      eventTime: form.bookingDetails[0]?.timeSlot || "EVENING",
+      endDate: form.endDate,
       totalPrice: form.totalPrice.toString(),
       paymentStatus: form.paymentStatus,
       numberOfGuests: form.numberOfGuests || 0,
@@ -560,6 +751,7 @@ export default function HallBookings() {
       guestName: form.guestName,
       guestContact: form.guestContact,
       remarks: form.remarks,
+      bookingDetails: form.bookingDetails,
     };
 
     createMutation.mutate(payload);
@@ -600,7 +792,7 @@ export default function HallBookings() {
     }
 
     // Validate booking date
-    const bookingDate = new Date(editForm.bookingDate);
+    const bookingDate = parseLocalDate(editForm.bookingDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0)
 
@@ -620,8 +812,8 @@ export default function HallBookings() {
       entityId: editForm.hallId,
       bookingDate: editForm.bookingDate,
       eventType: editForm.eventType,
-      eventTime: editForm.eventTime,
-      numberOfDays: editForm.numberOfDays,
+      eventTime: editForm.bookingDetails[0]?.timeSlot || "EVENING",
+      endDate: editForm.endDate,
       numberOfGuests: editForm.numberOfGuests || 0,
       totalPrice: editForm.totalPrice.toString(),
       paymentStatus: editForm.paymentStatus,
@@ -633,6 +825,7 @@ export default function HallBookings() {
       guestName: editForm.guestName,
       guestContact: editForm.guestContact,
       remarks: editForm.remarks,
+      bookingDetails: editForm.bookingDetails,
     };
 
     updateMutation.mutate(payload);
@@ -726,7 +919,7 @@ export default function HallBookings() {
         category: "Hall",
         hallId: editBooking.hallId?.toString() || "",
         bookingDate: editBooking.bookingDate
-          ? new Date(editBooking.bookingDate).toISOString().split("T")[0]
+          ? format(parseLocalDate(editBooking.bookingDate), "yyyy-MM-dd")
           : "",
         eventType: editBooking.eventType || "",
         eventTime: editBooking.bookingTime || "EVENING" as any as HallBookingTime,
@@ -736,13 +929,49 @@ export default function HallBookings() {
         paymentStatus: editBooking.paymentStatus || "UNPAID" as any as PaymentStatus,
         paidAmount: Number(editBooking.paidAmount) || 0,
         pendingAmount: Number(editBooking.pendingAmount) || 0,
+        numberOfDays: editBooking.numberOfDays || (editBooking.endDate && editBooking.bookingDate ? Math.abs(differenceInCalendarDays(parseLocalDate(editBooking.endDate), parseLocalDate(editBooking.bookingDate))) + 1 : 1),
         paymentMode: "CASH",
 
         paidBy: editBooking.paidBy,
         guestName: editBooking.guestName,
         guestContact: editBooking.guestContact,
         remarks: editBooking.remarks || "",
-        numberOfDays: editBooking.numberOfDays || 1,
+        endDate: editBooking.endDate ? format(parseLocalDate(editBooking.endDate), "yyyy-MM-dd") : "",
+        bookingDetails: (() => {
+          const details = (editBooking.bookingDetails as any[]) || [];
+          if (details.length > 0) {
+            // Ensure dates are yyyy-MM-dd strings in LOCAL time for consistency
+            return details.map(d => {
+              let dateStr = d.date;
+              // If date comes as ISO string from backend (e.g., 2025-12-27T19:00:00.000Z),
+              // we need to parse it as a Date and format it in local time
+              // because 7PM UTC = midnight next day in Pakistan (UTC+5)
+              if (typeof dateStr === 'string' && dateStr.includes('T')) {
+                const dateObj = new Date(dateStr);
+                // Format in local time (yyyy-MM-dd)
+                dateStr = format(dateObj, "yyyy-MM-dd");
+              }
+              return {
+                date: dateStr,
+                timeSlot: d.timeSlot,
+                eventType: d.eventType || editBooking.eventType
+              };
+            });
+          }
+          // Legacy support: generate based on range
+          const start = parseLocalDate(editBooking.bookingDate);
+          const end = editBooking.endDate ? parseLocalDate(editBooking.endDate) : start;
+          const days = Math.abs(differenceInCalendarDays(end, start)) + 1;
+          const generated = [];
+          for (let i = 0; i < days; i++) {
+            generated.push({
+              date: format(addDays(start, i), "yyyy-MM-dd"),
+              timeSlot: editBooking.bookingTime || "EVENING",
+              eventType: editBooking.eventType
+            });
+          }
+          return generated;
+        })(),
       };
       setEditForm(newEditForm);
     }
@@ -831,17 +1060,71 @@ export default function HallBookings() {
                   )}
                 </div>
 
-                <div>
-                  <Label>Booking Date *</Label>
-                  <UnifiedDatePicker
-                    value={form.bookingDate}
-                    onChange={(date) => {
-                      const dateStr = date ? format(date, "yyyy-MM-dd") : "";
-                      handleFormChange("bookingDate", dateStr);
-                    }}
-                    placeholder="Select booking date"
-                  />
+                <div className="md:col-span-2">
+                  <Label>Booking Dates *</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant={"outline"}
+                        className={cn(
+                          "w-full justify-start text-left font-normal h-12 bg-muted/30 border-none shadow-none mt-2",
+                          !form.bookingDate && "text-muted-foreground"
+                        )}
+                      >
+                        <NotepadText className="mr-2 h-4 w-4" />
+                        {form.bookingDate ? (
+                          form.endDate && form.endDate !== form.bookingDate ? (
+                            <>
+                              {format(parseLocalDate(form.bookingDate), "LLL dd, y")} -{" "}
+                              {format(parseLocalDate(form.endDate), "LLL dd, y")}
+                            </>
+                          ) : (
+                            format(parseLocalDate(form.bookingDate), "LLL dd, y")
+                          )
+                        ) : (
+                          <span>Select dates</span>
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        initialFocus
+                        mode="range"
+                        defaultMonth={form.bookingDate ? parseLocalDate(form.bookingDate) : new Date()}
+                        selected={{
+                          from: form.bookingDate ? parseLocalDate(form.bookingDate) : undefined,
+                          to: form.endDate ? parseLocalDate(form.endDate) : undefined,
+                        }}
+                        onSelect={(range) => {
+                          if (range?.from) {
+                            const fromStr = format(range.from, "yyyy-MM-dd");
+                            const toStr = range.to ? format(range.to, "yyyy-MM-dd") : fromStr;
+
+                            // Trigger separate updates to ensure handlers run
+                            handleFormChange("bookingDate", fromStr);
+                            handleFormChange("endDate", toStr);
+                          } else {
+                            handleFormChange("bookingDate", "");
+                            handleFormChange("endDate", "");
+                          }
+                        }}
+                        numberOfMonths={2}
+                        disabled={(date) => {
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          return date < today;
+                        }}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  {form.bookingDate && form.endDate && (
+                    <p className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
+                      <NotepadText className="h-3 w-3" />
+                      Total duration: {Math.abs(differenceInCalendarDays(parseLocalDate(form.endDate), parseLocalDate(form.bookingDate))) + 1} days
+                    </p>
+                  )}
                 </div>
+
 
                 <div>
                   <Label>Event Type *</Label>
@@ -864,37 +1147,27 @@ export default function HallBookings() {
                   </Select>
                 </div>
 
-                <div>
-                  <Label>Booking Time *</Label>
-                  <Select
-                    value={form.eventTime}
-                    onValueChange={(val) => handleFormChange("eventTime", val)}
-                  >
-                    <SelectTrigger className="mt-2">
-                      <SelectValue placeholder="Select time slot" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem
-                        value="MORNING"
-                        disabled={!availableCreateTimeSlots.includes('MORNING')}
-                      >
-                        Morning{!availableCreateTimeSlots.includes('MORNING') ? ' (Booked)' : ''}
-                      </SelectItem>
-                      <SelectItem
-                        value="EVENING"
-                        disabled={!availableCreateTimeSlots.includes('EVENING')}
-                      >
-                        Evening{!availableCreateTimeSlots.includes('EVENING') ? ' (Booked)' : ''}
-                      </SelectItem>
-                      <SelectItem
-                        value="NIGHT"
-                        disabled={!availableCreateTimeSlots.includes('NIGHT')}
-                      >
-                        Night{!availableCreateTimeSlots.includes('NIGHT') ? ' (Booked)' : ''}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                {form.bookingDate && form.endDate && (
+                  <IndividualTimeSlotSelector
+                    bookingDetails={form.bookingDetails}
+                    hallId={form.hallId}
+                    bookings={bookings}
+                    halls={halls}
+                    reservations={reservations}
+                    onChange={(newDetails) => {
+                      setForm(prev => {
+                        const newPrice = calculateHallPrice(halls, prev.hallId, prev.pricingType as PricingType, newDetails);
+                        return {
+                          ...prev,
+                          bookingDetails: newDetails,
+                          totalPrice: newPrice,
+                          pendingAmount: newPrice - prev.paidAmount
+                        };
+                      });
+                    }}
+                    defaultEventType={form.eventType}
+                  />
+                )}
 
                 <div>
                   <Label>Pricing Type</Label>
@@ -912,17 +1185,6 @@ export default function HallBookings() {
                       <SelectItem value="guest">Guest</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
-                <div>
-                  <Label>Number of Days *</Label>
-                  <Input
-                    type="number"
-                    value={form.numberOfDays || ""}
-                    onChange={(e) => handleFormChange("numberOfDays", parseInt(e.target.value) || 1)}
-                    className="mt-2"
-                    placeholder="Enter number of days"
-                    min="1"
-                  />
                 </div>
                 <div>
                   <Label>Number of Guests *</Label>
@@ -1015,10 +1277,21 @@ export default function HallBookings() {
                       {booking.hall?.name || booking.hallName}
                     </TableCell>
                     <TableCell>
-                      {new Date(booking.bookingDate).toLocaleDateString()}
+                      {format(parseLocalDate(booking.bookingDate), "PP")}
+                      {booking.endDate && booking.endDate !== booking.bookingDate && (
+                        <> - {format(parseLocalDate(booking.endDate), "PP")}</>
+                      )}
                     </TableCell>
                     <TableCell>{booking.eventType}</TableCell>
-                    <TableCell>{booking.bookingTime}</TableCell>
+                    <TableCell>
+                      {(() => {
+                        if (booking.bookingDetails && booking.bookingDetails.length > 0) {
+                          if (booking.bookingDetails.length === 1) return booking.bookingDetails[0].timeSlot;
+                          return `${booking.bookingDetails.length} Slots`;
+                        }
+                        return booking.bookingTime;
+                      })()}
+                    </TableCell>
                     <TableCell>
                       PKR {booking.totalPrice?.toLocaleString()}
                     </TableCell>
@@ -1139,31 +1412,21 @@ export default function HallBookings() {
               </div>
             </div>
 
-            <div>
-              <Label>Number of Days *</Label>
-              <Input
-                type="number"
-                value={editForm.numberOfDays || ""}
-                onChange={(e) => handleEditFormChange("numberOfDays", parseInt(e.target.value) || 1)}
-                className="mt-2"
-                placeholder="Enter number of days"
-                min="1"
-              />
-            </div>
 
             {/* Conflict Warning */}
-            {editForm.hallId && editForm.bookingDate && editForm.numberOfDays > 0 && editForm.eventTime && (
+            {editForm.hallId && editForm.bookingDate && editForm.eventTime && (
               <div className="md:col-span-2">
                 {(() => {
                   const conflict = checkHallConflicts(
                     editForm.hallId,
                     editForm.bookingDate,
-                    editForm.numberOfDays,
+                    editForm.endDate,
                     editForm.eventTime,
                     bookings,
                     halls,
                     reservations,
-                    editBooking?.id
+                    editBooking?.id?.toString(),
+                    editForm.bookingDetails
                   );
                   if (conflict.hasConflict) {
                     return (
@@ -1178,17 +1441,19 @@ export default function HallBookings() {
               </div>
             )}
             {/* Conflict Warning Ends */}
-            {form.hallId && form.bookingDate && form.numberOfDays > 0 && form.eventTime && (
+            {form.hallId && form.bookingDate && form.eventTime && (
               <div className="md:col-span-2">
                 {(() => {
                   const conflict = checkHallConflicts(
                     form.hallId,
                     form.bookingDate,
-                    form.numberOfDays,
+                    form.endDate,
                     form.eventTime,
                     bookings,
                     halls,
-                    reservations
+                    reservations,
+                    undefined,
+                    form.bookingDetails
                   );
                   if (conflict.hasConflict) {
                     return (
@@ -1230,18 +1495,71 @@ export default function HallBookings() {
               )}
             </div>
 
-            <div>
-              <Label>Booking Date *</Label>
-              <UnifiedDatePicker
-                value={editForm.bookingDate}
-                onChange={(date) => {
-                  const dateStr = date ? format(date, "yyyy-MM-dd") : "";
-                  handleEditFormChange("bookingDate", dateStr);
-                }}
-                placeholder="Select booking date"
-                minDate={new Date()}
-              />
+            <div className="md:col-span-2">
+              <Label>Booking Dates *</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={"outline"}
+                    className={cn(
+                      "w-full justify-start text-left font-normal h-12 bg-muted/30 border-none shadow-none mt-2",
+                      !editForm.bookingDate && "text-muted-foreground"
+                    )}
+                  >
+                    <NotepadText className="mr-2 h-4 w-4" />
+                    {editForm.bookingDate ? (
+                      editForm.endDate && editForm.endDate !== editForm.bookingDate ? (
+                        <>
+                          {format(parseLocalDate(editForm.bookingDate), "LLL dd, y")} -{" "}
+                          {format(parseLocalDate(editForm.endDate), "LLL dd, y")}
+                        </>
+                      ) : (
+                        format(parseLocalDate(editForm.bookingDate), "LLL dd, y")
+                      )
+                    ) : (
+                      <span>Select dates</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    initialFocus
+                    mode="range"
+                    defaultMonth={editForm.bookingDate ? parseLocalDate(editForm.bookingDate) : new Date()}
+                    selected={{
+                      from: editForm.bookingDate ? parseLocalDate(editForm.bookingDate) : undefined,
+                      to: editForm.endDate ? parseLocalDate(editForm.endDate) : undefined,
+                    }}
+                    onSelect={(range) => {
+                      if (range?.from) {
+                        const fromStr = format(range.from, "yyyy-MM-dd");
+                        const toStr = range.to ? format(range.to, "yyyy-MM-dd") : fromStr;
+
+                        // Trigger separate updates to ensure handlers run
+                        handleEditFormChange("bookingDate", fromStr);
+                        handleEditFormChange("endDate", toStr);
+                      } else {
+                        handleEditFormChange("bookingDate", "");
+                        handleEditFormChange("endDate", "");
+                      }
+                    }}
+                    numberOfMonths={2}
+                    disabled={(date) => {
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      return date < today;
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+              {editForm.bookingDate && editForm.endDate && (
+                <p className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
+                  <NotepadText className="h-3 w-3" />
+                  Total duration: {Math.abs(differenceInCalendarDays(parseLocalDate(editForm.endDate), parseLocalDate(editForm.bookingDate))) + 1} days
+                </p>
+              )}
             </div>
+
 
             <div>
               <Label>Event Type *</Label>
@@ -1264,37 +1582,28 @@ export default function HallBookings() {
               </Select>
             </div>
 
-            <div>
-              <Label>Booking Time *</Label>
-              <Select
-                value={editForm.eventTime}
-                onValueChange={(val) => handleEditFormChange("eventTime", val)}
-              >
-                <SelectTrigger className="mt-2">
-                  <SelectValue placeholder="Select time slot" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem
-                    value="MORNING"
-                    disabled={!availableEditTimeSlots.includes('MORNING') && editBooking?.bookingTime !== 'MORNING'}
-                  >
-                    Morning{!availableEditTimeSlots.includes('MORNING') && editBooking?.bookingTime !== 'MORNING' ? ' (Booked)' : ''}
-                  </SelectItem>
-                  <SelectItem
-                    value="EVENING"
-                    disabled={!availableEditTimeSlots.includes('EVENING') && editBooking?.bookingTime !== 'EVENING'}
-                  >
-                    Evening{!availableEditTimeSlots.includes('EVENING') && editBooking?.bookingTime !== 'EVENING' ? ' (Booked)' : ''}
-                  </SelectItem>
-                  <SelectItem
-                    value="NIGHT"
-                    disabled={!availableEditTimeSlots.includes('NIGHT') && editBooking?.bookingTime !== 'NIGHT'}
-                  >
-                    Night{!availableEditTimeSlots.includes('NIGHT') && editBooking?.bookingTime !== 'NIGHT' ? ' (Booked)' : ''}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {editForm.bookingDate && editForm.endDate && (
+              <IndividualTimeSlotSelector
+                bookingDetails={editForm.bookingDetails}
+                hallId={editForm.hallId}
+                bookings={bookings}
+                halls={halls}
+                reservations={reservations}
+                editBookingId={editBooking?.id?.toString()}
+                onChange={(newDetails) => {
+                  setEditForm(prev => {
+                    const newPrice = calculateHallPrice(halls, prev.hallId, prev.pricingType as PricingType, newDetails);
+                    return {
+                      ...prev,
+                      bookingDetails: newDetails,
+                      totalPrice: newPrice,
+                      pendingAmount: newPrice - prev.paidAmount
+                    };
+                  });
+                }}
+                defaultEventType={editForm.eventType}
+              />
+            )}
 
             <div>
               <Label>Pricing Type</Label>
@@ -1427,7 +1736,7 @@ export default function HallBookings() {
 
       {/* booking details */}
       <Dialog open={openDetails} onOpenChange={setOpenDetails}>
-        <DialogContent className="p-0 max-w-5xl min-w-4xl overflow-hidden">
+        <DialogContent className="p-0 max-w-5xl min-w-4xl max-h-[90vh] overflow-y-auto">
           {detailBooking && (
             <HallBookingDetailsCard
               booking={detailBooking}

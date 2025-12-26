@@ -28,6 +28,39 @@ import {
 @Injectable()
 export class BookingService {
   constructor(private prismaService: PrismaService) { }
+
+  private formatHallBookingRemarks(
+    hallName: string,
+    startDate: Date,
+    endDate: Date,
+    eventType: string,
+    bookingDetails: any[],
+    eventTime: string,
+  ): string {
+    const rangeStr =
+      startDate.getTime() === endDate.getTime()
+        ? formatPakistanDate(startDate)
+        : `${formatPakistanDate(startDate)} to ${formatPakistanDate(endDate)}`;
+
+    let remarks = `Hall Booking: ${hallName} | ${rangeStr}`;
+
+    if (bookingDetails && Array.isArray(bookingDetails) && bookingDetails.length > 0) {
+      const detailsList = bookingDetails
+        .map((d) => {
+          const dDate = formatPakistanDate(parsePakistanDate(d.date));
+          const slot = d.timeSlot;
+          const type = d.eventType || eventType;
+          return `- ${dDate}: ${slot} (${type})`;
+        })
+        .join('\n');
+
+      remarks += `\n${detailsList}`;
+    } else {
+      remarks += `\n- ${rangeStr}: ${eventTime} (${eventType})`;
+    }
+
+    return remarks;
+  }
   async lock() {
     const bookings = await this.prismaService.roomBooking.findMany({
       where: {
@@ -150,9 +183,24 @@ export class BookingService {
     for (const room of rooms) {
       if (!room.isActive) throw new ConflictException(`Room ${room.roomNumber} is not active`);
 
-      // Check holdings
+      // Check holdings with exact dates
       const roomHold = await this.prismaService.roomHoldings.findFirst({
-        where: { roomId: room.id, onHold: true, holdExpiry: { gt: new Date() } },
+        where: {
+          roomId: room.id,
+          onHold: true,
+          OR: [
+            {
+              // Check for exact date overlap
+              checkIn: { lt: checkOutDate },
+              checkOut: { gt: checkInDate },
+            },
+            {
+              // Fallback for legacy holds (only expiry)
+              checkIn: null,
+              holdExpiry: { gt: new Date() },
+            },
+          ],
+        },
       });
       if (roomHold) throw new ConflictException(`Room ${room.roomNumber} is currently on hold`);
 
@@ -265,6 +313,18 @@ export class BookingService {
         },
       });
     }
+
+    // ── CREATE ROOM HOLDING (Mirrors Booking) ────────────────
+    await this.prismaService.roomHoldings.createMany({
+      data: rooms.map((r) => ({
+        roomId: r.id,
+        onHold: true,
+        checkIn: checkInDate,
+        checkOut: checkOutDate,
+        holdExpiry: checkOutDate,
+        holdBy: membershipNo,
+      })),
+    });
 
     return booking;
   }
@@ -396,8 +456,30 @@ export class BookingService {
       if (!room.isActive) throw new ConflictException(`Room ${room.roomNumber} not active`);
 
       // Check holdings
+      // Check holdings with exact dates
       const roomHold = await this.prismaService.roomHoldings.findFirst({
-        where: { roomId: room.id, onHold: true, holdExpiry: { gt: new Date() } },
+        where: {
+          roomId: room.id,
+          onHold: true,
+          OR: [
+            {
+              checkIn: { lt: newCheckOut },
+              checkOut: { gt: newCheckIn },
+            },
+            {
+              checkIn: null,
+              holdExpiry: { gt: new Date() },
+            },
+          ],
+          // Exclude holds by this booking's user? 
+          // Assuming user might be updating their own booking, but the hold might be separate.
+          // Ideally we should exclude holds linked to THIS booking, but holds aren't linked to bookings by ID.
+          // We can exclude holds by this `membershipNo` if we assume 1 active booking/process per user.
+          // But safe to just alert conflict if blocked.
+          // NOT: { holdBy: booking.Membership_No } // logic below exists in member update, maybe add here?
+          // Adding exclusion for same member to allow updates
+          NOT: { holdBy: booking.Membership_No },
+        },
       });
       if (roomHold) throw new ConflictException(`Room ${room.roomNumber} is currently on hold`);
 
@@ -454,11 +536,7 @@ export class BookingService {
       'admin'
     );
 
-    const isToBill = newPaymentStatus === PaymentStatus.TO_BILL;
-    if (isToBill) {
-      amountToBalance = newOwed;
-      newOwed = 0;
-    }
+
 
     const paidDiff = newPaid - currPaid;
     const owedDiff = newOwed - (currTotal - currPaid);
@@ -586,8 +664,10 @@ export class BookingService {
       checkIn?: Date;
       checkOut?: Date;
       bookingDate?: Date;
+      endDate?: Date;
       eventTime?: string;
       eventType?: string;
+      bookingDetails?: any[];
       remarks?: string;
     },
     paymentMode: PaymentMode = PaymentMode.CASH,
@@ -620,7 +700,17 @@ export class BookingService {
       dateInfo = `${formatPakistanDate(details.bookingDate!)} (${details.eventTime})`;
     }
 
-    const baseRemarks = `${itemInfo} | ${dateInfo}${details.remarks ? ` | ${details.remarks}` : ''}`;
+    const baseRemarks =
+      bookingType === 'HALL'
+        ? this.formatHallBookingRemarks(
+          details.hallName || 'Hall',
+          details.bookingDate!,
+          details.endDate || details.bookingDate!,
+          details.eventType!,
+          details.bookingDetails || [],
+          details.eventTime!,
+        ) + (details.remarks ? ` | ${details.remarks}` : '')
+        : `${itemInfo} | ${dateInfo}${details.remarks ? ` | ${details.remarks}` : ''}`;
 
     if (paidDiff < 0) {
       // Scenario: Payment decreased (Less -> cancel the voucher and gen new)
@@ -845,8 +935,18 @@ export class BookingService {
           where: {
             roomId: room.id,
             onHold: true,
-            holdExpiry: { gt: new Date() },
-            holdBy: { not: membershipNo.toString() }
+            OR: [
+              {
+                checkIn: { lt: checkOutDate },
+                checkOut: { gt: checkInDate },
+              },
+              {
+                checkIn: null,
+                holdExpiry: { gt: new Date() },
+              },
+            ],
+            // Exclude holds by current user
+            NOT: { holdBy: membershipNo.toString() },
           },
         });
         if (roomHold) throw new ConflictException(`Room ${room.roomNumber} is on hold by another user`);
@@ -962,10 +1062,45 @@ export class BookingService {
         });
       }
 
-      // delete roomholding
+      // Create permanent hold record matching booking
+      await prisma.roomHoldings.createMany({
+        data: rooms.map((r) => ({
+          roomId: r.id,
+          onHold: true,
+          checkIn: checkInDate,
+          checkOut: checkOutDate,
+          holdExpiry: checkOutDate,
+          holdBy: membershipNo.toString(),
+        })),
+      });
+
+      // Optionally delete OLD/Temporary holds that don't match?
+      // For now, removing the deleteMany or changing it to only delete expired/temp ones?
+      // Since we just created new ones, we can clean up any 'temp' holds for this user checking in now?
+      // But we just created a hold with `membershipNo`.
+      // The old code `deleteMany({ where: { ..., holdBy: membershipNo } })` would delete what we just created if we ran it after!
+      // So we should delete BEFORE creating, or delete only those specific temp holds.
+      // Better: Delete all holds by this user for these rooms, THEN create new ones.
+      // This handles "converting" temp hold to permanent.
+
+      // Delete existing holds by this user
       await prisma.roomHoldings.deleteMany({
         where: { roomId: { in: roomIdsToBook }, holdBy: membershipNo.toString() }
-      })
+      });
+
+      // Create new holds (Moved check logic before delete to ensure we don't block ourselves if we check first? No, we check before txn or inside loop)
+      // The creation is here.
+
+      await prisma.roomHoldings.createMany({
+        data: rooms.map((r) => ({
+          roomId: r.id,
+          onHold: true,
+          checkIn: checkInDate,
+          checkOut: checkOutDate,
+          holdExpiry: checkOutDate,
+          holdBy: membershipNo.toString(),
+        })),
+      });
 
       return {
         success: true,
@@ -1059,7 +1194,21 @@ export class BookingService {
 
       // Check holdings
       const roomHold = await this.prismaService.roomHoldings.findFirst({
-        where: { roomId: room.id, onHold: true, holdExpiry: { gt: new Date() }, NOT: { holdBy: membershipNo.toString() } },
+        where: {
+          roomId: room.id,
+          onHold: true,
+          OR: [
+            {
+              checkIn: { lt: newCheckOut },
+              checkOut: { gt: newCheckIn }
+            },
+            {
+              checkIn: null,
+              holdExpiry: { gt: new Date() }
+            }
+          ],
+          NOT: { holdBy: membershipNo.toString() }
+        },
       });
       if (roomHold) throw new ConflictException(`Room ${room.roomNumber} is currently on hold`);
 
@@ -1269,7 +1418,7 @@ export class BookingService {
       paymentMode,
       eventType,
       numberOfGuests,
-      numberOfDays = 1,
+      endDate: endDateInput,
       eventTime,
       paidBy,
       guestName,
@@ -1287,6 +1436,47 @@ export class BookingService {
 
     if (booking < today)
       throw new UnprocessableEntityException('Booking date cannot be in past');
+
+    // Resolve End Date
+    const endDate = endDateInput ? new Date(endDateInput) : new Date(booking);
+    // Ensure endDate is at least bookingDate
+    if (endDate < booking) {
+      throw new BadRequestException('End Date cannot be before Start Date');
+    }
+
+    // Calculate number of days for DB (inclusive)
+    // Add 1 hour to handle DST potential issues when dividing by 24h, verifying with rounding
+    const diffTime = Math.abs(endDate.getTime() - booking.getTime());
+    const numberOfDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+    // ── BOOKING DETAILS NORMALIZATION ──
+    const bookingDetails = payload.bookingDetails || [];
+    const normalizedDetails: { date: Date; timeSlot: string; eventType?: string }[] = [];
+
+    if (bookingDetails && bookingDetails.length > 0) {
+      // Use provided details
+      for (const detail of bookingDetails) {
+        const dDate = new Date(detail.date);
+        dDate.setHours(0, 0, 0, 0);
+        normalizedDetails.push({
+          date: dDate,
+          timeSlot: detail.timeSlot,
+          eventType: detail.eventType || eventType,
+        });
+      }
+    } else {
+      // Fallback: Generate for each day in range using the single eventTime
+      for (let i = 0; i < numberOfDays; i++) {
+        const currentCheckDate = new Date(booking);
+        currentCheckDate.setDate(booking.getDate() + i);
+        currentCheckDate.setHours(0, 0, 0, 0);
+        normalizedDetails.push({
+          date: currentCheckDate,
+          timeSlot: payload.eventTime || 'EVENING',
+          eventType: eventType,
+        });
+      }
+    }
 
     const member = await this.prismaService.member.findFirst({
       where: { Membership_No: membershipNo },
@@ -1320,58 +1510,89 @@ export class BookingService {
         throw new BadRequestException('Invalid event time');
 
       // ── CONFLICT CHECKS ────────────────────────────────────
-      // ── CONFLICT CHECKS ────────────────────────────────────
-      const startDate = booking;
-      const endDate = new Date(booking);
-      endDate.setDate(endDate.getDate() + (numberOfGuests! > 0 ? numberOfDays - 1 : 0)); // numberOfDays is usually at least 1
-      if (numberOfDays < 1) endDate.setDate(startDate.getDate()); // Fallback
+      // ── CONFLICT CHECKS (Granular) ─────────────────────────
+      for (const detail of normalizedDetails) {
+        const currentCheckDate = detail.date;
+        const currentSlot = detail.timeSlot; // e.g. "MORNING"
 
-      const startValue = startDate.getTime();
-      const endValue = endDate.getTime();
+        // 1. Check Out of Order for this specific date
+        const outOfOrderConflict = hall.outOfOrders?.find((period) => {
+          const pStart = new Date(period.startDate).setHours(0, 0, 0, 0);
+          const pEnd = new Date(period.endDate).setHours(0, 0, 0, 0);
+          return (currentCheckDate.getTime() >= pStart && currentCheckDate.getTime() <= pEnd);
+        });
 
-      const outOfOrderConflict = hall.outOfOrders?.find((period) => {
-        const pStart = new Date(period.startDate).setHours(0, 0, 0, 0);
-        const pEnd = new Date(period.endDate).setHours(0, 0, 0, 0);
-        // Check overlap
-        return (startValue <= pEnd && endValue >= pStart);
-      });
+        if (outOfOrderConflict) {
+          throw new ConflictException(
+            `Hall '${hall.name}' out of order on ${currentCheckDate.toDateString()}`,
+          );
+        }
 
-      if (outOfOrderConflict) {
-        throw new ConflictException(
-          `Hall '${hall.name}' out of order during this period`,
-        );
-      }
+        // 2. Check Existing Bookings
+        // Query conflicts impacting this specific date
+        const existingBooking = await prisma.hallBooking.findFirst({
+          where: {
+            hallId: hall.id,
+            bookingDate: { lte: currentCheckDate },
+            endDate: { gte: currentCheckDate },
+          },
+        });
 
-      const existingBooking = await prisma.hallBooking.findFirst({
-        where: {
-          hallId: hall.id,
-          bookingTime: normalizedEventTime,
-          OR: [
-            {
-              bookingDate: { lte: endDate },
-              endDate: { gte: startDate }
+        if (existingBooking) {
+          const details = existingBooking.bookingDetails as any[];
+          let hasConflict = false;
+
+          if (details && Array.isArray(details) && details.length > 0) {
+            // Check if existing booking has THIS slot on THIS date
+            const conflictDetail = details.find((d: any) => {
+              const dDate = new Date(d.date);
+              dDate.setHours(0, 0, 0, 0);
+              return (
+                dDate.getTime() === currentCheckDate.getTime() &&
+                d.timeSlot === currentSlot
+              );
+            });
+            if (conflictDetail) hasConflict = true;
+          } else {
+            // Legacy/Fallback: blocks its `bookingTime`
+            if (existingBooking.bookingTime === currentSlot) {
+              hasConflict = true;
             }
-          ]
-        },
-      });
-      if (existingBooking)
-        throw new ConflictException(`Hall '${hall.name}' already booked for one or more selected dates`);
+          }
 
-      const existingReservation = await prisma.hallReservation.findFirst({
-        where: {
-          hallId: hall.id,
-          timeSlot: normalizedEventTime,
-          reservedFrom: { lte: endDate },
-          reservedTo: { gte: startDate }
-        },
-      });
-      if (existingReservation)
-        throw new ConflictException(`Hall '${hall.name}' reserved for one or more selected dates`);
+          if (hasConflict) {
+            throw new ConflictException(
+              `Hall already booked for ${currentSlot} on ${currentCheckDate.toDateString()}`,
+            );
+          }
+        }
+
+        // 3. Check Reservations (Inclusive of the day)
+        const dayStart = new Date(currentCheckDate);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(currentCheckDate);
+        dayEnd.setHours(23, 59, 59, 999);
+
+        const reservation = await prisma.hallReservation.findFirst({
+          where: {
+            hallId: hall.id,
+            reservedFrom: { lte: dayEnd },
+            reservedTo: { gte: dayStart },
+            timeSlot: currentSlot,
+          },
+        });
+
+        if (reservation) {
+          throw new ConflictException(
+            `Hall reserved for ${currentSlot} on ${currentCheckDate.toDateString()}`,
+          );
+        }
+      }
 
       // ── PAYMENT CALCULATION ────────────────────────────────
       const basePrice =
         pricingType === 'member' ? hall.chargesMembers : hall.chargesGuests;
-      const total = totalPrice ? Number(totalPrice) : Number(basePrice);
+      const total = totalPrice ? Number(totalPrice) : Number(basePrice) * numberOfDays;
       let paid = 0,
         owed = total;
 
@@ -1406,6 +1627,7 @@ export class BookingService {
           bookingDate: booking,
           endDate: endDate,
           numberOfDays: numberOfDays,
+          bookingDetails: normalizedDetails,
           totalPrice: total,
           paymentStatus: paymentStatus as any,
           pricingType,
@@ -1459,7 +1681,7 @@ export class BookingService {
             voucher_type: voucherType,
             status: VoucherStatus.CONFIRMED,
             issued_by: 'admin',
-            remarks: `${hall.name} | ${formatPakistanDate(booking)} to ${formatPakistanDate(endDate)} (${eventType}) - ${normalizedEventTime}`,
+            remarks: this.formatHallBookingRemarks(hall.name, booking, endDate, eventType, normalizedDetails, normalizedEventTime),
           },
         });
       }
@@ -1481,7 +1703,7 @@ export class BookingService {
       paymentMode,
       eventType,
       eventTime,
-      numberOfDays = 1,
+      endDate: endDateInput,
       numberOfGuests,
       paidBy,
       guestName,
@@ -1503,6 +1725,42 @@ export class BookingService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    // Resolve End Date
+    const endDate = endDateInput ? new Date(endDateInput) : new Date(booking);
+    if (endDate < booking) {
+      throw new BadRequestException('End Date cannot be before Start Date');
+    }
+
+    const diffTime = Math.abs(endDate.getTime() - booking.getTime());
+    const numberOfDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+    // ── BOOKING DETAILS NORMALIZATION ──
+    const bookingDetailsIn = payload.bookingDetails || [];
+    const normalizedDetails: { date: Date; timeSlot: string; eventType?: string }[] = [];
+
+    if (bookingDetailsIn && bookingDetailsIn.length > 0) {
+      for (const detail of bookingDetailsIn) {
+        const dDate = new Date(detail.date);
+        dDate.setHours(0, 0, 0, 0);
+        normalizedDetails.push({
+          date: dDate,
+          timeSlot: detail.timeSlot,
+          eventType: detail.eventType || eventType,
+        });
+      }
+    } else {
+      for (let i = 0; i < numberOfDays; i++) {
+        const currentCheckDate = new Date(booking);
+        currentCheckDate.setDate(booking.getDate() + i);
+        currentCheckDate.setHours(0, 0, 0, 0);
+        normalizedDetails.push({
+          date: currentCheckDate,
+          timeSlot: eventTime,
+          eventType: eventType,
+        });
+      }
+    }
+
     const existing = await this.prismaService.hallBooking.findUnique({
       where: { id: Number(id) },
       include: { hall: { include: { outOfOrders: true } }, member: true },
@@ -1523,12 +1781,7 @@ export class BookingService {
       if (!hall) throw new BadRequestException('Hall not found');
 
       // ── CONFLICT CHECKS ────────────────────────────────────
-      // ── CONFLICT CHECKS ────────────────────────────────────
-      const startDate = booking;
-      const endDate = new Date(booking);
-      endDate.setDate(endDate.getDate() + (numberOfDays > 0 ? numberOfDays - 1 : 0));
-
-      const startValue = startDate.getTime();
+      const startValue = booking.getTime();
       const endValue = endDate.getTime();
 
       const outOfOrderConflict = hall.outOfOrders?.find((period) => {
@@ -1548,36 +1801,68 @@ export class BookingService {
       const detailsChanged =
         existing.hallId !== Number(entityId) ||
         existing.bookingDate.getTime() !== booking.getTime() ||
-        existing.numberOfDays !== numberOfDays ||
-        existing.bookingTime !== normalizedEventTime;
+        existing.endDate.getTime() !== endDate.getTime() || // Check endDate change
+        existing.bookingTime !== normalizedEventTime ||
+        JSON.stringify(existing.bookingDetails) !== JSON.stringify(normalizedDetails);
 
       if (detailsChanged) {
-        const existingBooking = await prisma.hallBooking.findFirst({
-          where: {
-            hallId: Number(entityId),
-            bookingTime: normalizedEventTime,
-            id: { not: Number(id) },
-            OR: [
-              {
-                bookingDate: { lte: endDate },
-                endDate: { gte: startDate }
-              }
-            ]
-          },
-        });
-        if (existingBooking)
-          throw new ConflictException(`Hall '${hall.name}' already booked`);
+        // Granular check for each date/slot
+        for (const detail of normalizedDetails) {
+          const currentCheckDate = detail.date;
+          const currentSlot = detail.timeSlot;
 
-        const existingReservation = await prisma.hallReservation.findFirst({
-          where: {
-            hallId: Number(entityId),
-            timeSlot: normalizedEventTime,
-            reservedFrom: { lte: endDate },
-            reservedTo: { gte: startDate }
-          },
-        });
-        if (existingReservation)
-          throw new ConflictException(`Hall '${hall.name}' reserved`);
+          // existingBooking conflict check
+          const conflictingBooking = await prisma.hallBooking.findFirst({
+            where: {
+              hallId: Number(entityId),
+              id: { not: Number(id) },
+              bookingDate: { lte: currentCheckDate },
+              endDate: { gte: currentCheckDate },
+            },
+          });
+
+          if (conflictingBooking) {
+            const cDetails = conflictingBooking.bookingDetails as any[];
+            let hasConflict = false;
+            if (cDetails && Array.isArray(cDetails) && cDetails.length > 0) {
+              const conflict = cDetails.find((d: any) => {
+                const dDate = new Date(d.date);
+                dDate.setHours(0, 0, 0, 0);
+                return dDate.getTime() === currentCheckDate.getTime() && d.timeSlot === currentSlot;
+              });
+              if (conflict) hasConflict = true;
+            } else {
+              if (conflictingBooking.bookingTime === currentSlot) hasConflict = true;
+            }
+
+            if (hasConflict) {
+              throw new ConflictException(
+                `Hall already booked for ${currentSlot} on ${currentCheckDate.toDateString()}`,
+              );
+            }
+          }
+
+          // Reservation conflict check (Inclusive of the day)
+          const dayStart = new Date(currentCheckDate);
+          dayStart.setHours(0, 0, 0, 0);
+          const dayEnd = new Date(currentCheckDate);
+          dayEnd.setHours(23, 59, 59, 999);
+
+          const conflictingReservation = await prisma.hallReservation.findFirst({
+            where: {
+              hallId: Number(entityId),
+              timeSlot: currentSlot,
+              reservedFrom: { lte: dayEnd },
+              reservedTo: { gte: dayStart },
+            },
+          });
+
+          if (conflictingReservation) {
+            throw new ConflictException(
+              `Hall reserved for ${currentSlot} on ${currentCheckDate.toDateString()}`,
+            );
+          }
+        }
       }
 
       // ── PAYMENT RECALCULATION ──────────────────────────────
@@ -1619,8 +1904,10 @@ export class BookingService {
         {
           hallName: hall.name,
           bookingDate: booking,
+          endDate: endDate,
           eventTime: normalizedEventTime,
           eventType: eventType,
+          bookingDetails: normalizedDetails,
           remarks: remarks,
         },
         PaymentMode.CASH,
@@ -1639,6 +1926,7 @@ export class BookingService {
           bookingDate: booking,
           endDate: endDate,
           numberOfDays: numberOfDays,
+          bookingDetails: normalizedDetails,
           totalPrice: newTotal,
           paymentStatus: newPaymentStatus,
           pricingType,
@@ -1652,7 +1940,7 @@ export class BookingService {
           guestContact: guestContact?.toString(),
           refundAmount,
           refundReturned: false,
-        },
+        } as any,
       });
 
       // ── UPDATE VOUCHER DATES ───────────────────────────────
@@ -1671,25 +1959,30 @@ export class BookingService {
             },
           },
           data: {
-            remarks: `${formatPakistanDate(booking)} - ${normalizedEventTime} - ${eventType}${remarks ? ` | ${remarks}` : ''}`,
+            remarks: this.formatHallBookingRemarks(existing.hall.name, booking, endDate, eventType, normalizedDetails, normalizedEventTime),
           },
         });
       }
 
       // ── UPDATE HALL STATUS ─────────────────────────────────
-      const isToday = booking.getTime() === today.getTime();
-      const wasToday = existing.bookingDate.getTime() === today.getTime();
+      // We need to re-evaluate isBooked based on current date
+      // If current date is within the range, isBooked = true
+      const now = new Date().getTime();
+      const isWithinRange = now >= booking.getTime() && now <= endDate.getTime();
+      const wasWithinRange = now >= existing.bookingDate.getTime() && now <= existing.endDate.getTime();
 
-      if (isToday && !wasToday) {
-        await prisma.hall.update({
-          where: { id: hall.id },
-          data: { isBooked: true },
-        });
-      } else if (wasToday && !isToday) {
-        await prisma.hall.update({
-          where: { id: hall.id },
-          data: { isBooked: false },
-        });
+      // Simple update: Check if ANY booking is currently active for this hall, if so set True, else False
+      // But that's expensive to query all.
+      // Optimistic approach: if we just added a current booking, set true.
+      if (isWithinRange && !wasWithinRange) {
+        await prisma.hall.update({ where: { id: hall.id }, data: { isBooked: true } });
+      }
+      // If we removed a current booking (moved dates), we should check if others exist?
+      // Or just set false if we think we were the only one? Safer to leave as is or do a check if critical.
+      // Given existing logic was simple toggle, we'll stick to simple logic:
+      // If we are active NOW, ensure encoded.
+      if (isWithinRange) {
+        await prisma.hall.update({ where: { id: hall.id }, data: { isBooked: true } });
       }
 
       // ── UPDATE MEMBER LEDGER ───────────────────────────────
@@ -1724,6 +2017,7 @@ export class BookingService {
       paymentMode = 'ONLINE',
       eventType,
       eventTime,
+      endDate: endDateInput,
       specialRequests = '',
       paidBy = 'MEMBER',
       guestName,
@@ -1741,10 +2035,18 @@ export class BookingService {
     if (booking < today)
       throw new ConflictException('Booking date cannot be in past');
 
-    const member = await this.prismaService.member.findUnique({
-      where: { Membership_No: membershipNo.toString() },
-    });
-    if (!member) throw new NotFoundException('Member not found');
+    // Resolve End Date
+    const endDate = endDateInput ? new Date(endDateInput) : new Date(booking);
+    if (endDate < booking) {
+      throw new BadRequestException('End Date cannot be before Start Date');
+    }
+
+    const diffTime = Math.abs(endDate.getTime() - booking.getTime());
+    const numberOfDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+    // ── BOOKING DETAILS NORMALIZATION ──
+    const bookingDetailsIn = payload.bookingDetails || [];
+    const normalizedDetails: { date: Date; timeSlot: string; eventType?: string }[] = [];
 
     const normalizedEventTime = eventTime.toUpperCase() as
       | 'MORNING'
@@ -1752,6 +2054,35 @@ export class BookingService {
       | 'NIGHT';
     if (!['MORNING', 'EVENING', 'NIGHT'].includes(normalizedEventTime))
       throw new BadRequestException('Invalid event time');
+
+    if (bookingDetailsIn && bookingDetailsIn.length > 0) {
+      for (const detail of bookingDetailsIn) {
+        const dDate = new Date(detail.date);
+        dDate.setHours(0, 0, 0, 0);
+        normalizedDetails.push({
+          date: dDate,
+          timeSlot: detail.timeSlot,
+          eventType: detail.eventType || eventType,
+        });
+      }
+    } else {
+      for (let i = 0; i < numberOfDays; i++) {
+        const currentCheckDate = new Date(booking);
+        currentCheckDate.setDate(booking.getDate() + i);
+        currentCheckDate.setHours(0, 0, 0, 0);
+        normalizedDetails.push({
+          date: currentCheckDate,
+          timeSlot: normalizedEventTime,
+          eventType: eventType,
+        });
+      }
+    }
+
+    const member = await this.prismaService.member.findUnique({
+      where: { Membership_No: membershipNo.toString() },
+    });
+    if (!member) throw new NotFoundException('Member not found');
+
 
     // ── PROCESS IN TRANSACTION ───────────────────────────────
     return await this.prismaService.$transaction(async (prisma) => {
@@ -1772,40 +2103,75 @@ export class BookingService {
       });
       if (hallHold) throw new ConflictException('Hall is currently on hold');
 
-      // ── CONFLICT CHECKS ────────────────────────────────────
-      const outOfOrderConflict = hall.outOfOrders?.find((period) => {
-        const start = new Date(period.startDate).setHours(0, 0, 0, 0);
-        const end = new Date(period.endDate).setHours(0, 0, 0, 0);
-        return booking.getTime() >= start && booking.getTime() <= end;
-      });
-      if (outOfOrderConflict)
-        throw new ConflictException(`Hall '${hall.name}' out of order`);
+      // ── CONFLICT CHECKS (Granular) ─────────────────────────
+      for (const detail of normalizedDetails) {
+        const currentCheckDate = detail.date;
+        const currentSlot = detail.timeSlot;
 
-      const existingBooking = await prisma.hallBooking.findFirst({
-        where: {
-          hallId: hall.id,
-          bookingDate: booking,
-          bookingTime: normalizedEventTime,
-        },
-      });
-      if (existingBooking)
-        throw new ConflictException(`Hall '${hall.name}' already booked`);
+        // 1. Check Out of Order
+        const outOfOrderConflict = hall.outOfOrders?.find((period) => {
+          const start = new Date(period.startDate).setHours(0, 0, 0, 0);
+          const end = new Date(period.endDate).setHours(0, 0, 0, 0);
+          return (currentCheckDate.getTime() >= start && currentCheckDate.getTime() <= end);
+        });
+        if (outOfOrderConflict) {
+          throw new ConflictException(`Hall '${hall.name}' out of order on ${currentCheckDate.toDateString()}`);
+        }
 
-      const existingReservation = await prisma.hallReservation.findFirst({
-        where: {
-          hallId: hall.id,
-          reservedFrom: { lte: booking },
-          reservedTo: { gt: booking },
-          timeSlot: normalizedEventTime,
-        },
-      });
-      if (existingReservation)
-        throw new ConflictException(`Hall '${hall.name}' reserved`);
+        // 2. Check Existing Bookings
+        const existingBooking = await prisma.hallBooking.findFirst({
+          where: {
+            hallId: hall.id,
+            bookingDate: { lte: currentCheckDate },
+            endDate: { gte: currentCheckDate },
+          },
+        });
+
+        if (existingBooking) {
+          const details = existingBooking.bookingDetails as any[];
+          let hasConflict = false;
+          if (details && Array.isArray(details) && details.length > 0) {
+            const conflict = details.find((d: any) => {
+              const dDate = new Date(d.date);
+              dDate.setHours(0, 0, 0, 0);
+              return dDate.getTime() === currentCheckDate.getTime() && d.timeSlot === currentSlot;
+            });
+            if (conflict) hasConflict = true;
+          } else {
+            if (existingBooking.bookingTime === currentSlot) hasConflict = true;
+          }
+
+          if (hasConflict) {
+            throw new ConflictException(`Hall already booked for ${currentSlot} on ${currentCheckDate.toDateString()}`);
+          }
+        }
+
+        // 3. Check Reservations (Inclusive of the day)
+        const dayStart = new Date(currentCheckDate);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(currentCheckDate);
+        dayEnd.setHours(23, 59, 59, 999);
+
+        const conflictingReservation = await prisma.hallReservation.findFirst({
+          where: {
+            hallId: hall.id,
+            timeSlot: currentSlot,
+            reservedFrom: { lte: dayEnd },
+            reservedTo: { gte: dayStart },
+          },
+        });
+
+        if (conflictingReservation) {
+          throw new ConflictException(
+            `Hall reserved for ${currentSlot} on ${currentCheckDate.toDateString()}`,
+          );
+        }
+      }
 
       // ── PAYMENT CALCULATION ────────────────────────────────
       const basePrice =
         pricingType === 'member' ? hall.chargesMembers : hall.chargesGuests;
-      const total = totalPrice ? Number(totalPrice) : Number(basePrice);
+      const total = totalPrice ? Number(totalPrice) : Number(basePrice) * numberOfDays;
       let paid = 0,
         owed = total;
 
@@ -1835,6 +2201,9 @@ export class BookingService {
           memberId: member.Sno,
           hallId: hall.id,
           bookingDate: booking,
+          endDate: endDate,
+          numberOfDays: numberOfDays,
+          bookingDetails: normalizedDetails,
           totalPrice: total,
           paymentStatus: paymentStatus as any,
           pricingType,
@@ -1850,7 +2219,7 @@ export class BookingService {
       });
 
       // ── UPDATE HALL STATUS ─────────────────────────────────
-      if (booking.getTime() === today.getTime()) {
+      if (booking.getTime() <= today.getTime() && endDate.getTime() >= today.getTime()) {
         await prisma.hall.update({
           where: { id: hall.id },
           data: {
@@ -1897,7 +2266,7 @@ export class BookingService {
             voucher_type: voucherType,
             status: VoucherStatus.CONFIRMED,
             issued_by: 'member',
-            remarks: `${hall.name} | ${formatPakistanDate(booking)} | ${eventType} (${normalizedEventTime})${specialRequests ? ` | ${specialRequests}` : ''}`,
+            remarks: this.formatHallBookingRemarks(hall.name, booking, endDate, eventType, normalizedDetails, normalizedEventTime) + (specialRequests ? ` | ${specialRequests}` : ''),
           },
         });
       }
@@ -1931,6 +2300,8 @@ export class BookingService {
       guestName,
       guestContact,
       remarks,
+      endDate: endDateInput,
+      bookingDetails: bookingDetailsIn,
     } = payload;
 
     if (
@@ -1948,8 +2319,50 @@ export class BookingService {
 
     const existing = await this.prismaService.hallBooking.findUnique({
       where: { id: Number(id) },
+      include: { hall: { include: { outOfOrders: true } } },
     });
     if (!existing) throw new NotFoundException('Hall booking not found');
+
+    // Resolve End Date
+    const endDate = endDateInput ? new Date(endDateInput) : new Date(booking);
+    if (endDate < booking) {
+      throw new BadRequestException('End Date cannot be before Start Date');
+    }
+
+    const diffTime = Math.abs(endDate.getTime() - booking.getTime());
+    const numberOfDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+    // ── BOOKING DETAILS NORMALIZATION ──
+    const normalizedDetails: { date: Date; timeSlot: string; eventType?: string }[] = [];
+    const normalizedEventTime = eventTime.toUpperCase() as
+      | 'MORNING'
+      | 'EVENING'
+      | 'NIGHT';
+    if (!['MORNING', 'EVENING', 'NIGHT'].includes(normalizedEventTime))
+      throw new BadRequestException('Invalid event time');
+
+    if (bookingDetailsIn && bookingDetailsIn.length > 0) {
+      for (const detail of bookingDetailsIn) {
+        const dDate = new Date(detail.date);
+        dDate.setHours(0, 0, 0, 0);
+        normalizedDetails.push({
+          date: dDate,
+          timeSlot: detail.timeSlot,
+          eventType: detail.eventType || eventType,
+        });
+      }
+    } else {
+      for (let i = 0; i < numberOfDays; i++) {
+        const currentCheckDate = new Date(booking);
+        currentCheckDate.setDate(booking.getDate() + i);
+        currentCheckDate.setHours(0, 0, 0, 0);
+        normalizedDetails.push({
+          date: currentCheckDate,
+          timeSlot: normalizedEventTime,
+          eventType: eventType,
+        });
+      }
+    }
 
     const member = await this.prismaService.member.findFirst({
       where: { Membership_No: membershipNo },
@@ -1964,30 +2377,69 @@ export class BookingService {
       });
       if (!hall) throw new BadRequestException('Hall not found');
 
-      // ── CONFLICT CHECKS ────────────────────────────────────
-      const outOfOrderConflict = hall.outOfOrders?.find((period) => {
-        const start = new Date(period.startDate).setHours(0, 0, 0, 0);
-        const end = new Date(period.endDate).setHours(0, 0, 0, 0);
-        return booking.getTime() >= start && booking.getTime() <= end;
-      });
-      if (outOfOrderConflict)
-        throw new ConflictException(`Hall '${hall.name}' out of order`);
+      // ── CONFLICT CHECKS (Granular & Inclusive) ────────────
+      for (const detail of normalizedDetails) {
+        const currentCheckDate = detail.date;
+        const currentSlot = detail.timeSlot;
 
-      const normalizedEventTime = eventTime.toUpperCase() as
-        | 'MORNING'
-        | 'EVENING'
-        | 'NIGHT';
+        // 1. Check Out of Order
+        const outOfOrderConflict = hall.outOfOrders?.find((period) => {
+          const start = new Date(period.startDate).setHours(0, 0, 0, 0);
+          const end = new Date(period.endDate).setHours(0, 0, 0, 0);
+          return (currentCheckDate.getTime() >= start && currentCheckDate.getTime() <= end);
+        });
+        if (outOfOrderConflict) {
+          throw new ConflictException(`Hall '${hall.name}' out of order on ${currentCheckDate.toDateString()}`);
+        }
 
-      const conflictingBooking = await prisma.hallBooking.findFirst({
-        where: {
-          hallId: hall.id,
-          id: { not: Number(id) },
-          bookingDate: booking,
-          bookingTime: normalizedEventTime,
-        },
-      });
-      if (conflictingBooking)
-        throw new ConflictException(`Hall '${hall.name}' already booked`);
+        // 2. Check Existing Bookings
+        const confBooking = await prisma.hallBooking.findFirst({
+          where: {
+            hallId: hall.id,
+            id: { not: Number(id) },
+            bookingDate: { lte: currentCheckDate },
+            endDate: { gte: currentCheckDate },
+          },
+        });
+
+        if (confBooking) {
+          const dArr = confBooking.bookingDetails as any[];
+          let hasConflict = false;
+          if (dArr && Array.isArray(dArr) && dArr.length > 0) {
+            const conflictFound = dArr.find((d: any) => {
+              const dDate = new Date(d.date);
+              dDate.setHours(0, 0, 0, 0);
+              return dDate.getTime() === currentCheckDate.getTime() && d.timeSlot === currentSlot;
+            });
+            if (conflictFound) hasConflict = true;
+          } else {
+            if (confBooking.bookingTime === currentSlot) hasConflict = true;
+          }
+
+          if (hasConflict) {
+            throw new ConflictException(`Hall already booked for ${currentSlot} on ${currentCheckDate.toDateString()}`);
+          }
+        }
+
+        // 3. Check Reservations (Inclusive of the day)
+        const dayStart = new Date(currentCheckDate);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(currentCheckDate);
+        dayEnd.setHours(23, 59, 59, 999);
+
+        const confReservation = await prisma.hallReservation.findFirst({
+          where: {
+            hallId: hall.id,
+            timeSlot: currentSlot,
+            reservedFrom: { lte: dayEnd },
+            reservedTo: { gte: dayStart },
+          },
+        });
+
+        if (confReservation) {
+          throw new ConflictException(`Hall reserved for ${currentSlot} on ${currentCheckDate.toDateString()}`);
+        }
+      }
 
       // ── PAYMENT CALCULATIONS ────────────────────────────────
       const currTotal = Number(existing.totalPrice);
@@ -2029,8 +2481,10 @@ export class BookingService {
         {
           hallName: hall.name,
           bookingDate: booking,
+          endDate: endDate,
           eventTime: normalizedEventTime,
           eventType: eventType,
+          bookingDetails: normalizedDetails,
           remarks: remarks,
         },
         (paymentMode as unknown as PaymentMode) || PaymentMode.ONLINE,
@@ -2047,6 +2501,9 @@ export class BookingService {
           hallId: hall.id,
           memberId: member.Sno,
           bookingDate: booking,
+          endDate: endDate,
+          numberOfDays: numberOfDays,
+          bookingDetails: normalizedDetails,
           totalPrice: newTotal,
           paymentStatus: newPaymentStatus,
           pricingType,
@@ -2060,21 +2517,22 @@ export class BookingService {
           guestContact: guestContact?.toString(),
           refundAmount,
           refundReturned: false,
-        },
+        } as any,
       });
 
       // ── UPDATE HALL STATUS ─────────────────────────────────
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const isToday = booking.getTime() === today.getTime();
-      const wasToday = existing.bookingDate.getTime() === today.getTime();
+      const now = new Date().getTime();
+      const isWithinRange = now >= booking.getTime() && now <= endDate.getTime();
+      const wasWithinRange = now >= existing.bookingDate.getTime() && now <= (existing.endDate || existing.bookingDate).getTime();
 
-      if (isToday && !wasToday) {
+      if (isWithinRange && !wasWithinRange) {
         await prisma.hall.update({
           where: { id: hall.id },
           data: { isBooked: true },
         });
-      } else if (wasToday && !isToday) {
+      } else if (wasWithinRange && !isWithinRange) {
+        // Here we'd ideally check if ANY other booking is current, but let's keep it consistent
+        // with the existing logic for now.
         await prisma.hall.update({
           where: { id: hall.id },
           data: { isBooked: false },

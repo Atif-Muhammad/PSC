@@ -26,6 +26,12 @@ import {
   Sun,
   Moon,
   Sunset,
+  Eye,
+  LayoutDashboard,
+  Users,
+  DollarSign,
+  Settings,
+  DoorOpen,
 } from "lucide-react";
 import {
   Dialog,
@@ -57,11 +63,18 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { exportHallsReport } from "@/lib/pdfExport";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
   createHall as createHallApi,
   updateHall as updateHallApi,
   getHalls,
   deleteHall as deleteHallApi,
   reserveHall,
+  getHallLogs,
 } from "../../config/apis";
 import {
   DropdownMenu,
@@ -200,6 +213,382 @@ const MaintenanceIndicator = ({
   );
 };
 
+// Hall Detail Dialog Component
+function HallDetailDialog({
+  hall,
+  onClose,
+  logs,
+  loading,
+  dateRange,
+  onDateRangeChange,
+  activeTab,
+  onTabChange
+}: {
+  hall: Hall | null;
+  onClose: () => void;
+  logs: any;
+  loading: boolean;
+  dateRange: DateRange | undefined;
+  onDateRangeChange: (range: DateRange | undefined) => void;
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+}) {
+  if (!hall) return null;
+
+  return (
+    <Dialog open={!!hall} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <div className="flex items-center justify-between pr-8">
+            <div>
+              <DialogTitle className="text-2xl font-bold">
+                {hall.name}
+              </DialogTitle>
+              <div className="flex items-center gap-2 mt-1">
+                <Badge variant="outline" className="font-normal border-primary/20 bg-primary/5 text-primary">
+                  Hall
+                </Badge>
+                <span className="text-sm text-muted-foreground">
+                  ID: {hall.id}
+                </span>
+              </div>
+              <span className="text-xs text-muted-foreground">{hall.description}</span>
+            </div>
+            <Badge
+              variant={hall.isActive ? "default" : "secondary"}
+              className={cn(
+                "px-3 py-1",
+                hall.isActive
+                  ? "bg-green-100 text-green-700 hover:bg-green-100"
+                  : "bg-red-100 text-red-700 hover:bg-red-100"
+              )}
+            >
+              {hall.isActive ? "Active" : "Inactive"}
+            </Badge>
+          </div>
+        </DialogHeader>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 py-2">
+          <Card className="p-3 bg-muted/20 border border-border/50 shadow-none transition-all hover:bg-muted/30 text-left">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-slate-100 rounded-md">
+                <Users className="h-4 w-4 text-slate-600" />
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-tight">
+                  Member Price
+                </p>
+                <p className="text-sm font-bold text-slate-700">
+                  Rs. {Number(hall.chargesMembers || 0).toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </Card>
+          <Card className="p-3 bg-muted/20 border border-border/50 shadow-none transition-all hover:bg-muted/30 text-left">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-slate-100 rounded-md">
+                <Users className="h-4 w-4 text-slate-600" />
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-tight">
+                  Guest Price
+                </p>
+                <p className="text-sm font-bold text-slate-700">
+                  Rs. {Number(hall.chargesGuests || 0).toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </Card>
+          <Card className="p-3 bg-muted/20 border border-border/50 shadow-none transition-all hover:bg-muted/30 text-left overflow-hidden">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-slate-100 rounded-md shrink-0">
+                <Info className="h-4 w-4 text-slate-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-tight whitespace-nowrap">
+                  Description
+                </p>
+                <p className="text-xs truncate text-slate-600">
+                  {hall.description || "No description provided."}
+                </p>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        {/* Small Overview Totals */}
+        <div className="flex items-center gap-4 py-2 border-y border-border/40">
+          <div className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
+            <span className="text-[11px] font-medium text-slate-500">
+              Reservations: <span className="text-slate-900">{logs?.reservations?.length || 0}</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 border-l pl-4 border-border/40">
+            <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
+            <span className="text-[11px] font-medium text-slate-500">
+              Bookings: <span className="text-slate-900">{logs?.bookings?.length || 0}</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 border-l pl-4 border-border/40">
+            <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
+            <span className="text-[11px] font-medium text-slate-500">
+              Maintenance: <span className="text-slate-900">{logs?.outOfOrders?.length || 0}</span>
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-6 pt-2">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <h3 className="text-sm font-semibold flex items-center gap-2 text-slate-700">
+              Activity Logs
+              {loading && <div className="h-3 w-3 animate-spin rounded-full border border-slate-400 border-t-transparent" />}
+            </h3>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground whitespace-nowrap">Filter Logs:</span>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={cn(
+                      "justify-start text-left font-normal h-9",
+                      !dateRange && "text-muted-foreground"
+                    )}
+                  >
+                    <Calendar className="mr-2 h-4 w-4" />
+                    {dateRange?.from ? (
+                      dateRange.to ? (
+                        <>
+                          {format(dateRange.from, "LLL dd, y")} -{" "}
+                          {format(dateRange.to, "LLL dd, y")}
+                        </>
+                      ) : (
+                        format(dateRange.from, "LLL dd, y")
+                      )
+                    ) : (
+                      <span>Pick a date range</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end">
+                  <CalendarComponent
+                    initialFocus
+                    mode="range"
+                    defaultMonth={dateRange?.from}
+                    selected={dateRange}
+                    onSelect={onDateRangeChange}
+                    numberOfMonths={2}
+                    classNames={{
+                      day_today: "border-2 border-primary text-primary bg-transparent font-bold",
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+
+          <Tabs
+            value={activeTab}
+            onValueChange={onTabChange}
+            className="w-full"
+          >
+            <TabsList className="grid w-full grid-cols-3 h-9 p-1 bg-slate-100 rounded-md">
+              <TabsTrigger value="reservations" className="text-[11px] rounded-sm data-[state=active]:bg-background data-[state=active]:shadow-none data-[state=active]:border border-slate-200">
+                Reservations ({logs?.reservations?.length || 0})
+              </TabsTrigger>
+              <TabsTrigger value="bookings" className="text-[11px] rounded-sm data-[state=active]:bg-background data-[state=active]:shadow-none data-[state=active]:border border-slate-200">
+                Bookings ({logs?.bookings?.length || 0})
+              </TabsTrigger>
+              <TabsTrigger value="maintenance" className="text-[11px] rounded-sm data-[state=active]:bg-background data-[state=active]:shadow-none data-[state=active]:border border-slate-200">
+                Maintenance ({logs?.outOfOrders?.length || 0})
+              </TabsTrigger>
+            </TabsList>
+
+            <div className="mt-4 min-h-[300px]">
+              {loading ? (
+                <div className="flex flex-col items-center justify-center h-[300px] gap-2 text-slate-400">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-300"></div>
+                  <p className="text-[11px] font-medium">Loading history...</p>
+                </div>
+              ) : (
+                <>
+                  <TabsContent value="reservations" className="mt-0 outline-none">
+                    <div className="border border-slate-100 rounded-lg overflow-hidden bg-white">
+                      <Table>
+                        <TableHeader className="bg-slate-50/50">
+                          <TableRow className="hover:bg-transparent border-slate-100">
+                            <TableHead className="text-[11px] h-9 text-slate-500">Reserved From</TableHead>
+                            <TableHead className="text-[11px] h-9 text-slate-500">Reserved To</TableHead>
+                            <TableHead className="text-[11px] h-9 text-slate-500">Time Slot</TableHead>
+                            <TableHead className="text-[11px] h-9 text-slate-500">Reserved By</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {logs?.reservations?.length ? (
+                            logs.reservations.map((res: any) => (
+                              <TableRow key={res.id} className="hover:bg-slate-50/50 transition-colors border-slate-50">
+                                <TableCell className="text-xs py-2 text-slate-600">
+                                  {format(new Date(res.reservedFrom), "LLL dd, y")}
+                                </TableCell>
+                                <TableCell className="text-xs py-2 text-slate-600">
+                                  {format(new Date(res.reservedTo), "LLL dd, y")}
+                                </TableCell>
+                                <TableCell className="text-xs py-2 text-slate-600">
+                                  {res.timeSlot}
+                                </TableCell>
+                                <TableCell className="text-xs py-2">
+                                  <div className="flex items-center gap-2 text-slate-600">
+                                    <div className="h-5 w-5 rounded-full bg-slate-100 flex items-center justify-center text-[9px] font-bold text-slate-500">
+                                      {res.admin?.name?.substring(0, 1).toUpperCase()}
+                                    </div>
+                                    {res.admin?.name}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          ) : (
+                            <TableRow>
+                              <TableCell
+                                colSpan={4}
+                                className="text-center py-10 text-slate-400"
+                              >
+                                <div className="flex flex-col items-center gap-1.5">
+                                  <Calendar className="h-6 w-6 opacity-10" />
+                                  <p className="text-[11px]">No reservations found.</p>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="bookings" className="mt-0 outline-none">
+                    <div className="border border-slate-100 rounded-lg overflow-hidden bg-white">
+                      <Table>
+                        <TableHeader className="bg-slate-50/50">
+                          <TableRow className="hover:bg-transparent border-slate-100">
+                            <TableHead className="text-[11px] h-9 text-slate-500">Member</TableHead>
+                            <TableHead className="text-[11px] h-9 text-slate-500">Date</TableHead>
+                            <TableHead className="text-[11px] h-9 text-slate-500">Slot & Event</TableHead>
+                            <TableHead className="text-[11px] h-9 text-slate-500">Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {logs?.bookings?.length ? (
+                            logs.bookings.map((book: any) => (
+                              <TableRow key={book.id} className="hover:bg-slate-50/50 transition-colors border-slate-50">
+                                <TableCell className="py-2">
+                                  <div>
+                                    <p className="font-semibold text-xs text-slate-700">
+                                      {book.member?.Name || "Guest"}
+                                    </p>
+                                    <p className="text-[10px] text-slate-400">
+                                      {book.member?.Membership_No || "-"}
+                                    </p>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-xs py-2 text-slate-600">
+                                  {format(new Date(book.bookingDate), "LLL dd, y")}
+                                  {book.endDate && book.endDate !== book.bookingDate && ` - ${format(new Date(book.endDate), "LLL dd, y")}`}
+                                </TableCell>
+                                <TableCell className="text-xs py-2 text-slate-600">
+                                  <div className="flex flex-col">
+                                    <span className="font-semibold">
+                                      {book.bookingDetails && Array.isArray(book.bookingDetails) && book.bookingDetails.length > 0
+                                        ? book.bookingDetails.map((slot: any) => `${slot.timeSlot}${slot.eventType ? ` - ${slot.eventType}` : ''}`).join(", ")
+                                        : `${book.bookingTime}${book.eventType ? ` - ${book.eventType}` : ''}`
+                                      }
+                                    </span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="py-2">
+                                  <Badge
+                                    variant="secondary"
+                                    className={cn(
+                                      "capitalize text-[9px] font-semibold px-2 py-0 h-4 bg-slate-100 text-slate-600 border-none shadow-none"
+                                    )}
+                                  >
+                                    {book.paymentStatus?.toLowerCase()}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          ) : (
+                            <TableRow>
+                              <TableCell
+                                colSpan={4}
+                                className="text-center py-10 text-slate-400"
+                              >
+                                <div className="flex flex-col items-center gap-1.5">
+                                  <DoorOpen className="h-6 w-6 opacity-10" />
+                                  <p className="text-[11px]">No bookings found.</p>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="maintenance" className="mt-0 outline-none">
+                    <div className="border border-slate-100 rounded-lg overflow-hidden bg-white">
+                      <Table>
+                        <TableHeader className="bg-slate-50/50">
+                          <TableRow className="hover:bg-transparent border-slate-100">
+                            <TableHead className="text-[11px] h-9 text-slate-500">Date Range</TableHead>
+                            <TableHead className="text-[11px] h-9 text-slate-500">Reason</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {logs?.outOfOrders?.length ? (
+                            logs.outOfOrders.map((oo: any) => (
+                              <TableRow key={oo.id} className="hover:bg-slate-50/50 transition-colors border-slate-50">
+                                <TableCell className="text-xs py-2 text-slate-600">
+                                  {format(new Date(oo.startDate), "LLL dd, y")} -{" "}
+                                  {format(new Date(oo.endDate), "LLL dd, y")}
+                                </TableCell>
+                                <TableCell className="text-xs py-2 text-slate-600">
+                                  <div className="flex items-center gap-1.5">
+                                    <Settings className="h-3 w-3 text-slate-300" />
+                                    {oo.reason}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          ) : (
+                            <TableRow>
+                              <TableCell
+                                colSpan={2}
+                                className="text-center py-10 text-slate-400"
+                              >
+                                <div className="flex flex-col items-center gap-1.5">
+                                  <Settings className="h-6 w-6 opacity-10" />
+                                  <p className="text-[11px]">No maintenance records.</p>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </TabsContent>
+                </>
+              )}
+            </div>
+          </Tabs>
+        </div>
+        <DialogFooter className="border-t pt-4">
+          <Button variant="outline" onClick={onClose}>Close Details</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Halls() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -215,6 +604,14 @@ export default function Halls() {
     to: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split("T")[0],
   });
   const [selectedTimeSlot, setSelectedTimeSlot] = useState("MORNING");
+  const [detailHall, setDetailHall] = useState<Hall | null>(null);
+  const [detailLogs, setDetailLogs] = useState<any>(null);
+  const [logLoading, setLogLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("reservations");
+  const [detailDateRange, setDetailDateRange] = useState<DateRange | undefined>({
+    from: new Date(new Date().getFullYear(), new Date().getMonth(), 1), // Start of month
+    to: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0), // End of month
+  });
 
   const [newOutOfOrder, setNewOutOfOrder] = useState({
     reason: "",
@@ -819,6 +1216,32 @@ export default function Halls() {
       setSelectedHalls([]);
     }
   }, [reserveDates.from, reserveDates.to, selectedTimeSlot, halls]);
+
+  // Fetch hall logs
+  useEffect(() => {
+    const fetchLogs = async () => {
+      if (!detailHall || !detailDateRange?.from || !detailDateRange?.to) return;
+
+      setLogLoading(true);
+      try {
+        const fromStr = format(detailDateRange.from, "yyyy-MM-dd");
+        const toStr = format(detailDateRange.to, "yyyy-MM-dd");
+        const logs = await getHallLogs(detailHall.id, fromStr, toStr);
+        setDetailLogs(logs);
+      } catch (error) {
+        console.error("Failed to fetch logs:", error);
+        toast({
+          title: "Error",
+          description: "Failed to fetch hall logs",
+          variant: "destructive",
+        });
+      } finally {
+        setLogLoading(false);
+      }
+    };
+
+    fetchLogs();
+  }, [detailHall, detailDateRange, toast]);
 
   // Get payment status badge
   const getPaymentStatusBadge = (status: string) => {
@@ -1481,6 +1904,14 @@ export default function Halls() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          onClick={() => setDetailHall(hall)}
+                          title="View Details"
+                        >
+                          <Eye className="h-4 w-4 text-blue-600" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           onClick={() => setEditHall(hall)}
                         >
                           <Edit className="h-4 w-4" />
@@ -1501,6 +1932,17 @@ export default function Halls() {
           )}
         </CardContent>
       </Card>
+
+      <HallDetailDialog
+        hall={detailHall}
+        onClose={() => setDetailHall(null)}
+        logs={detailLogs}
+        loading={logLoading}
+        dateRange={detailDateRange}
+        onDateRangeChange={setDetailDateRange}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+      />
 
       {/* Reserve Halls Dialog */}
       <Dialog open={reserveDialog} onOpenChange={setReserveDialog}>

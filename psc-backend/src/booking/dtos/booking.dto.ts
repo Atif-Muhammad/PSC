@@ -45,7 +45,10 @@ export class BookingDto {
     @IsOptional()
     numberOfGuests?: number
     @IsOptional()
-    numberOfDays?: number
+    endDate?: string | null
+    @IsOptional()
+    bookingDetails?: { date: string; timeSlot: string; eventType?: string }[];
+
 
     @IsOptional()
     paidBy?: "GUEST" | "MEMBER"

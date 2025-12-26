@@ -194,9 +194,9 @@ export function HallBookingDetailsCard({
         </div>
       </CardHeader>
 
-      <CardContent className="pt-4">
+      <CardContent className="pt-2">
         {/* Main Information Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Left Column - Event Details */}
           <div className="space-y-4">
             {/* Event Date & Time */}
@@ -207,14 +207,55 @@ export function HallBookingDetailsCard({
               </h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Event Date</Label>
-                  <Value>{formatDate(booking.bookingDate)}</Value>
+                  <Label>Event Date(s)</Label>
+                  <Value>
+                    {formatDate(booking.bookingDate)}
+                    {booking.endDate && booking.endDate !== booking.bookingDate && (
+                      <> - {formatDate(booking.endDate)}</>
+                    )}
+                  </Value>
                 </div>
                 <div>
                   <Label>Event Time</Label>
                   <Value className="flex items-center gap-2">
-                    <span>{getTimeSlotIcon(booking.bookingTime)}</span>
-                    {getTimeSlotDisplay(booking.bookingTime)}
+                    {(() => {
+                      if (booking.bookingDetails && booking.bookingDetails.length > 0) {
+                        const details = booking.bookingDetails;
+                        if (details.length === 1) {
+                          return (
+                            <>
+                              <span>{getTimeSlotIcon(details[0].timeSlot)}</span>
+                              {getTimeSlotDisplay(details[0].timeSlot)}
+                            </>
+                          );
+                        }
+
+                        return (
+                          <div className="flex flex-col gap-1 max-h-[120px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-blue-100">
+                            {details.map((d, i) => (
+                              <div key={i} className="flex items-center justify-between gap-2 text-[10px] bg-blue-50/50 px-2 py-1 rounded border border-blue-100/50">
+                                <div className="flex items-center gap-1 text-gray-600">
+                                  <Calendar className="h-3 w-3 text-blue-400" />
+                                  <span className="font-semibold">
+                                    {new Date(d.date).toLocaleDateString("en-PK", { day: 'numeric', month: 'short' })}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1 font-medium text-blue-700 uppercase">
+                                  <span>{getTimeSlotIcon(d.timeSlot)}</span>
+                                  <span>{d.timeSlot}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }
+                      return (
+                        <>
+                          <span>{getTimeSlotIcon(booking.bookingTime)}</span>
+                          {getTimeSlotDisplay(booking.bookingTime)}
+                        </>
+                      );
+                    })()}
                   </Value>
                 </div>
                 <div className="col-span-2">
@@ -226,6 +267,36 @@ export function HallBookingDetailsCard({
                 </div>
               </div>
             </div>
+
+            {/* Booking Schedule */}
+            {booking.bookingDetails && booking.bookingDetails.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="font-semibold text-sm flex items-center gap-2 text-gray-700">
+                  <Clock className="h-4 w-4" />
+                  Booking Schedule
+                </h3>
+                <div className="grid grid-cols-1 gap-2 border rounded-md p-3 bg-gray-50/50 max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+                  {booking.bookingDetails.map((detail: any, idx: number) => (
+                    <div key={idx} className="flex justify-between items-center text-sm border-b last:border-0 pb-1.5 last:pb-0 pt-1.5 first:pt-0">
+                      <div className="flex flex-col">
+                        <span className="text-gray-600">
+                          {new Date(detail.date).toLocaleDateString("en-PK", { weekday: 'short', day: 'numeric', month: 'short' })}
+                        </span>
+                        {detail.eventType && (
+                          <span className="text-[10px] text-purple-600 font-medium uppercase">
+                            {getEventTypeDisplay(detail.eventType)}
+                          </span>
+                        )}
+                      </div>
+                      <span className="font-medium flex items-center gap-1.5">
+                        <span>{getTimeSlotIcon(detail.timeSlot)}</span>
+                        {detail.timeSlot}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Hall Information */}
             <div className="space-y-2">
@@ -339,62 +410,32 @@ export function HallBookingDetailsCard({
                 </div>
               </div>
             )}
+
+            {/* Remarks */}
+            {booking.remarks && (
+              <div className="space-y-2">
+                <h3 className="font-semibold text-sm flex items-center gap-2 text-gray-700">
+                  <FileText className="h-4 w-4" />
+                  Special Instructions
+                </h3>
+                <div className="p-3 bg-gray-50 border rounded-md text-sm text-gray-600 max-h-[80px] overflow-y-auto italic">
+                  "{booking.remarks}"
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Out of Order Periods Warning */}
-        {hasOutOfOrders && showFullDetails && (
-          <div className="mt-6 pt-4 border-t">
-            <h3 className="font-semibold text-sm flex items-center gap-2 text-gray-700 mb-2">
-              <AlertCircle className="h-4 w-4 text-orange-500" />
-              Hall Maintenance Periods
-            </h3>
-            <div className="space-y-2">
-              {booking.hall.outOfOrders.map((period) => {
-                const eventDate = new Date(booking.bookingDate);
-                const periodStart = new Date(period.startDate);
-                const periodEnd = new Date(period.endDate);
-                const isOverlapping = eventDate >= periodStart && eventDate <= periodEnd;
-                
-                return (
-                  <div
-                    key={period.id}
-                    className={`p-3 rounded-md border text-sm ${
-                      isOverlapping
-                        ? "bg-red-50 border-red-300"
-                        : "bg-gray-50 border-gray-200"
-                    }`}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="font-medium">
-                          {formatDate(period.startDate)} - {formatDate(period.endDate)}
-                        </div>
-                        <div className="text-gray-600 mt-1">{period.reason}</div>
-                      </div>
-                      {isOverlapping && (
-                        <Badge variant="destructive" className="text-xs">
-                          Affects This Booking
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {/* Status Summary */}
         {showFullDetails && (
           <div className="mt-6 pt-4 border-t">
             <div className="flex flex-wrap gap-4">
               <div className="flex items-center gap-2">
-                <div className={`h-2 w-2 rounded-full ${
-                  booking.paymentStatus === "PAID" ? "bg-green-500" :
+                <div className={`h-2 w-2 rounded-full ${booking.paymentStatus === "PAID" ? "bg-green-500" :
                   booking.paymentStatus === "HALF_PAID" ? "bg-yellow-500" :
-                  "bg-red-500"
-                }`} />
+                    "bg-red-500"
+                  }`} />
                 <span className="text-sm">
                   <span className="font-medium">Payment:</span> {booking.paymentStatus}
                 </span>
@@ -408,7 +449,10 @@ export function HallBookingDetailsCard({
               <div className="flex items-center gap-2">
                 <TimeIcon className="h-3 w-3 text-gray-500" />
                 <span className="text-sm">
-                  <span className="font-medium">Time Slot:</span> {booking.bookingTime}
+                  <span className="font-medium">Time Slot:</span>{" "}
+                  {booking.bookingDetails && booking.bookingDetails.length > 1
+                    ? `${booking.bookingDetails.length} Slots`
+                    : booking.bookingTime}
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -421,7 +465,7 @@ export function HallBookingDetailsCard({
           </div>
         )}
       </CardContent>
-    </Card>
+    </Card >
   );
 }
 

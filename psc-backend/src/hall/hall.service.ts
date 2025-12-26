@@ -422,34 +422,54 @@ export class HallService {
           }
         }
 
-        // MODIFIED: Check for booking conflicts
-        const conflictingBookings = await prisma.hallBooking.findMany({
+        // MODIFIED: Check for booking conflicts (inclusive ranges)
+        const conflictingBookings = (await prisma.hallBooking.findMany({
           where: {
             hallId: { in: hallIds },
-            OR: [
-              {
-                // Booking overlaps with reservation period AND matches time slot
-                // MODIFIED: Allow checkout date to equal booking date
-                bookingDate: {
-                  gte: reservedFrom,
-                  lte: reservedTo, // Changed from lt to lte to be inclusive
-                },
-                bookingTime: timeSlot as any, // Strict time slot check
-              },
-            ],
+            bookingDate: { lte: toDateOnly },
+            endDate: { gte: fromDateOnly },
           },
           include: { hall: { select: { name: true } } },
-        });
+        })) as any[];
 
         if (conflictingBookings.length > 0) {
-          const conflicts = conflictingBookings.map(
-            (conflict) =>
-              `Hall "${conflict.hall.name}" booked on ${formatPakistanDate(conflict.bookingDate)} (${conflict.bookingTime})`,
-          );
-          throw new HttpException(
-            `Booking conflicts: ${conflicts.join(', ')}`,
-            HttpStatus.CONFLICT,
-          );
+          const conflicts: string[] = [];
+          for (const book of conflictingBookings) {
+            const bDetails = book.bookingDetails as any[];
+            let hasConflict = false;
+
+            if (bDetails && Array.isArray(bDetails) && bDetails.length > 0) {
+              // Granular check for overlapping dates and time slots
+              const conflictFound = bDetails.find((d: any) => {
+                const dDate = new Date(d.date);
+                dDate.setHours(0, 0, 0, 0);
+                return (
+                  dDate.getTime() >= fromDateOnly.getTime() &&
+                  dDate.getTime() <= toDateOnly.getTime() &&
+                  d.timeSlot === timeSlot
+                );
+              });
+              if (conflictFound) hasConflict = true;
+            } else {
+              // Legacy/Fallback check
+              if (book.bookingTime === timeSlot) {
+                hasConflict = true;
+              }
+            }
+
+            if (hasConflict) {
+              conflicts.push(
+                `Hall "${book.hall.name}" booked on ${formatPakistanDate(book.bookingDate)}${book.endDate && new Date(book.endDate).getTime() !== new Date(book.bookingDate).getTime() ? ` to ${formatPakistanDate(book.endDate)}` : ''} (${book.bookingTime})`,
+              );
+            }
+          }
+
+          if (conflicts.length > 0) {
+            throw new HttpException(
+              `Booking conflicts: ${conflicts.join(', ')}`,
+              HttpStatus.CONFLICT,
+            );
+          }
         }
 
         // MODIFIED: Check for other reservation conflicts
@@ -677,5 +697,88 @@ export class HallService {
         };
       }
     }
+  }
+
+  async getHallLogs(hallId: number | string, from: string, to: string) {
+    const fromDate = new Date(from);
+    fromDate.setHours(0, 0, 0, 0);
+    const toDate = new Date(to);
+    toDate.setHours(23, 59, 59, 999);
+
+    const hallIdNum = Number(hallId);
+
+    const [reservations, bookings, outOfOrders] = await Promise.all([
+      this.prismaService.hallReservation.findMany({
+        where: {
+          hallId: hallIdNum,
+          OR: [
+            { reservedFrom: { lte: toDate, gte: fromDate } },
+            { reservedTo: { lte: toDate, gte: fromDate } },
+            {
+              AND: [
+                { reservedFrom: { lte: fromDate } },
+                { reservedTo: { gte: toDate } },
+              ],
+            },
+          ],
+        },
+        include: {
+          admin: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+        orderBy: { reservedFrom: 'desc' },
+      }),
+      this.prismaService.hallBooking.findMany({
+        where: {
+          hallId: hallIdNum,
+          OR: [
+            { bookingDate: { lte: toDate, gte: fromDate } },
+            { endDate: { lte: toDate, gte: fromDate } },
+            {
+              AND: [
+                { bookingDate: { lte: fromDate } },
+                { endDate: { gte: toDate } },
+              ],
+            },
+          ],
+        },
+        include: {
+          member: {
+            select: {
+              Sno: true,
+              Name: true,
+              Membership_No: true,
+            },
+          },
+        },
+        orderBy: { bookingDate: 'desc' },
+      }),
+      this.prismaService.hallOutOfOrder.findMany({
+        where: {
+          hallId: hallIdNum,
+          OR: [
+            { startDate: { lte: toDate, gte: fromDate } },
+            { endDate: { lte: toDate, gte: fromDate } },
+            {
+              AND: [
+                { startDate: { lte: fromDate } },
+                { endDate: { gte: toDate } },
+              ],
+            },
+          ],
+        },
+        orderBy: { startDate: 'desc' },
+      }),
+    ]);
+
+    return {
+      reservations,
+      bookings,
+      outOfOrders,
+    };
   }
 }

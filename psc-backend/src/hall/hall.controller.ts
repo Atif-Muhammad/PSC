@@ -23,7 +23,7 @@ import type { Response } from 'express';
 
 @Controller('hall')
 export class HallController {
-  constructor(private hall: HallService) {}
+  constructor(private hall: HallService) { }
 
   // @UseGuards(JwtAccGuard, RolesGuard)
   // @Roles(RolesEnum.SUPER_ADMIN)
@@ -39,7 +39,7 @@ export class HallController {
   async getAvailHalls() {
     return this.hall.getAvailHalls();
   }
-  
+
   @UseGuards(JwtAccGuard, RolesGuard)
   @Roles(RolesEnum.SUPER_ADMIN)
   @UseInterceptors(FilesInterceptor('files'))
@@ -48,9 +48,9 @@ export class HallController {
     @UploadedFiles() files: Express.Multer.File[],
     @Body() payload: HallDto,
   ) {
-    return this.hall.createHall({...payload, isActive: Boolean(payload.isActive)}, files);
+    return this.hall.createHall({ ...payload, isActive: Boolean(payload.isActive) }, files);
   }
-  
+
   @UseGuards(JwtAccGuard, RolesGuard)
   @Roles(RolesEnum.SUPER_ADMIN)
   @UseInterceptors(FilesInterceptor('files'))
@@ -60,7 +60,7 @@ export class HallController {
     @Body() payload: HallDto,
   ) {
     console.log(payload.isActive)
-    return this.hall.updateHall({...payload, isActive: payload.isActive = payload.isActive === 'true' || payload.isActive === true}, files);
+    return this.hall.updateHall({ ...payload, isActive: payload.isActive = payload.isActive === 'true' || payload.isActive === true }, files);
   }
 
   @UseGuards(JwtAccGuard, RolesGuard)
@@ -70,8 +70,8 @@ export class HallController {
   async deleteHall(@Query('hallId') hallId: string) {
     return this.hall.deleteHall(Number(hallId));
   }
-  
-  
+
+
   // reserve halls
   @UseGuards(JwtAccGuard, RolesGuard)
   @Roles(RolesEnum.SUPER_ADMIN)
@@ -95,5 +95,15 @@ export class HallController {
       payload.reserveFrom,
       payload.reserveTo,
     );
+  }
+
+  @UseGuards(JwtAccGuard)
+  @Get('logs')
+  async getHallLogs(
+    @Query('hallId') hallId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ) {
+    return this.hall.getHallLogs(hallId, from, to);
   }
 }

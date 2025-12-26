@@ -802,6 +802,28 @@ export const deleteHall = async (id: string): Promise<any> => {
   }
 };
 
+export const getHallLogs = async (
+  hallId: number | string,
+  from: string,
+  to: string
+): Promise<any> => {
+  try {
+    const response = await axios.get(
+      `${base_url}/hall/logs?hallId=${hallId}&from=${from}&to=${to}`,
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error: any) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
 // lawns
 
 export const getLawnCategoriesNames = async (catId: any): Promise<any> => {

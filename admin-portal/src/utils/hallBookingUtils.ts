@@ -1,4 +1,4 @@
-import { differenceInCalendarDays, addDays, format } from "date-fns";
+import { differenceInCalendarDays, addDays, format, parse } from "date-fns";
 import {
   Hall,
   HallBooking,
@@ -8,6 +8,27 @@ import {
   PaymentStatus,
 } from "@/types/hall-booking.type";
 import { DateStatus } from "@/types/room-booking.type";
+
+// Helper to parse date strings (yyyy-MM-dd or ISO) as a local Date object without UTC shifts for simple dates
+export const parseLocalDate = (dateStr: string): Date => {
+  if (!dateStr) return new Date();
+
+  // If it's already a full ISO string or contains time info, take just the date part for consistent local parsing
+  // or if it's already a Date object (though TS says string), handle it.
+  const str = String(dateStr);
+  const datePart = str.includes('T') ? str.split('T')[0] : str;
+
+  const parts = datePart.split('-');
+  if (parts.length === 3) {
+    const [y, m, d] = parts.map(Number);
+    const date = new Date(y, m - 1, d);
+    if (!isNaN(date.getTime())) return date;
+  }
+
+  // Fallback for other formats
+  const fallback = new Date(dateStr);
+  return isNaN(fallback.getTime()) ? new Date() : fallback;
+};
 
 export const hallInitialFormState: HallBookingForm = {
   membershipNo: "",
@@ -28,15 +49,17 @@ export const hallInitialFormState: HallBookingForm = {
   paidBy: "MEMBER",
   guestName: "",
   guestContact: "",
-  numberOfDays: 1,
   remarks: "",
+  endDate: "",
+  numberOfDays: 1,
+  bookingDetails: [],
 };
 
 export const calculateHallPrice = (
   halls: Hall[],
   hallId: string,
   pricingType: PricingType,
-  numberOfDays: number = 1
+  bookingDetails: { date: string; timeSlot: string }[]
 ) => {
   if (!hallId) return 0;
 
@@ -47,7 +70,12 @@ export const calculateHallPrice = (
     ? Number(hall.chargesMembers || 0)
     : Number(hall.chargesGuests || 0);
 
-  return basePrice * numberOfDays;
+  // If we have granular details, price is per-slot
+  if (bookingDetails && bookingDetails.length > 0) {
+    return basePrice * bookingDetails.length;
+  }
+
+  return basePrice;
 };
 
 export const calculateHallAccountingValues = (
@@ -107,6 +135,7 @@ export const getHallDateTimeStatuses = (
     // Get unavailable time slots for this date
     const unavailableTimeSlots = getUnavailableTimeSlotsForDate(
       date,
+      hallId,
       hallBookings,
       hallReservations
     );
@@ -158,6 +187,7 @@ export const isHallOutOfOrderForDate = (hall: Hall, date: Date): boolean => {
 // Get unavailable time slots for a specific date
 export const getUnavailableTimeSlotsForDate = (
   date: Date,
+  hallId: string,
   bookings: HallBooking[],
   reservations: any[]
 ): string[] => {
@@ -169,19 +199,26 @@ export const getUnavailableTimeSlotsForDate = (
 
   const unavailableSlots: string[] = [];
 
-  // Check bookings for this date
-  const dateBookings = bookings.filter(booking => {
-    const bookingDate = new Date(booking.bookingDate);
-    const bYear = bookingDate.getFullYear();
-    const bMonth = String(bookingDate.getMonth() + 1).padStart(2, '0');
-    const bDay = String(bookingDate.getDate()).padStart(2, '0');
-    const bookingDateString = `${bYear}-${bMonth}-${bDay}`;
-    return bookingDateString === dateString;
-  });
-
-  dateBookings.forEach(booking => {
-    if (booking.bookingTime && !unavailableSlots.includes(booking.bookingTime)) {
-      unavailableSlots.push(booking.bookingTime);
+  // Check bookings for this date (already filtered by hallId in callers, but we double check here)
+  bookings.filter(booking => booking.hallId?.toString() === hallId).forEach(booking => {
+    // 1. Check granular bookingDetails if available
+    if (booking.bookingDetails && Array.isArray(booking.bookingDetails)) {
+      booking.bookingDetails.forEach((detail: any) => {
+        const detailDateStr = format(new Date(detail.date), "yyyy-MM-dd");
+        if (detailDateStr === dateString && detail.timeSlot) {
+          if (!unavailableSlots.includes(detail.timeSlot)) {
+            unavailableSlots.push(detail.timeSlot);
+          }
+        }
+      });
+    }
+    // 2. Fallback to legacy bookingTime for backward compatibility
+    else if (booking.bookingTime) {
+      const bookingDate = new Date(booking.bookingDate);
+      const bDateString = bookingDate.toISOString().split('T')[0];
+      if (bDateString === dateString && !unavailableSlots.includes(booking.bookingTime)) {
+        unavailableSlots.push(booking.bookingTime);
+      }
     }
   });
 
@@ -230,7 +267,8 @@ export const getAvailableTimeSlots = (
 
   // Get unavailable time slots for the selected date
   const unavailableSlots = getUnavailableTimeSlotsForDate(
-    new Date(date),
+    parseLocalDate(date),
+    hallId,
     hallBookings,
     reservations
   );
@@ -243,22 +281,35 @@ export const getAvailableTimeSlots = (
 export const checkHallConflicts = (
   hallId: string,
   startDate: string,
-  numberOfDays: number,
+  endDate: string,
   timeSlot: string,
   bookings: HallBooking[],
   halls: Hall[],
   reservations: any[] = [],
-  excludeBookingId?: string
+  excludeBookingId?: string,
+  bookingDetails?: { date: string, timeSlot: string }[]
 ) => {
   const hall = halls.find(h => h.id.toString() === hallId);
   if (!hall) return { hasConflict: false };
 
-  const start = new Date(startDate);
-  start.setHours(0, 0, 0, 0);
+  const start = parseLocalDate(startDate);
+  const end = endDate ? parseLocalDate(endDate) : start;
+
+  const numberOfDays = Math.abs(differenceInCalendarDays(end, start)) + 1;
 
   for (let i = 0; i < numberOfDays; i++) {
     const targetDate = addDays(start, i);
-    const dateString = targetDate.toISOString().split('T')[0];
+    const dateString = format(targetDate, "yyyy-MM-dd");
+
+    // Get time slot for this specific date
+    let currentSlot = timeSlot;
+    if (bookingDetails && Array.isArray(bookingDetails)) {
+      const detail = bookingDetails.find(d => {
+        const dDate = format(new Date(d.date), "yyyy-MM-dd");
+        return dDate === dateString;
+      });
+      if (detail) currentSlot = detail.timeSlot;
+    }
 
     // 1. Check Out of Order
     if (isHallOutOfOrderForDate(hall, targetDate)) {
@@ -272,9 +323,19 @@ export const checkHallConflicts = (
 
     // 2. Check Bookings
     const isBooked = bookings.some(b => {
-      if (excludeBookingId && b.id.toString() === excludeBookingId) return false;
-      const bDate = new Date(b.bookingDate).toISOString().split('T')[0];
-      return b.hallId?.toString() === hallId && bDate === dateString && b.bookingTime === timeSlot;
+      if (excludeBookingId && b.id?.toString() === excludeBookingId?.toString()) return false;
+
+      // Check granular details first
+      if (b.bookingDetails && Array.isArray(b.bookingDetails)) {
+        return b.hallId?.toString() === hallId && b.bookingDetails.some((d: any) => {
+          const detailDateStr = format(new Date(d.date), "yyyy-MM-dd");
+          return detailDateStr === dateString && d.timeSlot === currentSlot;
+        });
+      }
+
+      // Fallback to legacy
+      const bDate = format(new Date(b.bookingDate), "yyyy-MM-dd");
+      return b.hallId?.toString() === hallId && bDate === dateString && b.bookingTime === currentSlot;
     });
 
     if (isBooked) {
@@ -282,7 +343,7 @@ export const checkHallConflicts = (
         hasConflict: true,
         type: 'BOOKED',
         date: dateString,
-        message: `Hall is already Booked for ${timeSlot} on ${format(targetDate, "MMM d, yyyy")}`
+        message: `Hall is already Booked for ${currentSlot} on ${format(targetDate, "MMM d, yyyy")}`
       };
     }
 
@@ -296,7 +357,7 @@ export const checkHallConflicts = (
       const d = new Date(targetDate);
       d.setHours(0, 0, 0, 0);
 
-      return r.hallId?.toString() === hallId && d >= rStart && d <= rEnd && r.timeSlot === timeSlot;
+      return r.hallId?.toString() === hallId && d >= rStart && d <= rEnd && r.timeSlot === currentSlot;
     });
 
     if (isReserved) {
@@ -304,7 +365,7 @@ export const checkHallConflicts = (
         hasConflict: true,
         type: 'RESERVED',
         date: dateString,
-        message: `Hall is Reserved for ${timeSlot} on ${format(targetDate, "MMM d, yyyy")}`
+        message: `Hall is Reserved for ${currentSlot} on ${format(targetDate, "MMM d, yyyy")}`
       };
     }
   }
