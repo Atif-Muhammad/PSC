@@ -1012,7 +1012,7 @@ export default function Halls() {
     if (fromDate > toDate) {
       toast({
         title: "Invalid date range",
-        description: "End date must be after start date",
+        description: "End date cannot be before start date",
         variant: "destructive",
       });
       return;

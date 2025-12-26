@@ -338,9 +338,9 @@ export class HallService {
       const toDateOnly = new Date(toDate);
       toDateOnly.setHours(0, 0, 0, 0);
 
-      if (fromDateOnly >= toDateOnly) {
+      if (fromDateOnly > toDateOnly) {
         throw new HttpException(
-          'Reservation end date must be after start date',
+          'Reservation end date cannot be before start date',
           HttpStatus.BAD_REQUEST,
         );
       }
