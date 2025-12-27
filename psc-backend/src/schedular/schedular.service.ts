@@ -187,8 +187,11 @@ export class SchedularService {
         onHold: false,
         holdExpiry: null,
         holdBy: null,
+        checkIn: null,
+        checkOut: null,
       },
     });
+
     const expiredHallHolds = await this.prismaService.hallHoldings.updateMany({
       where: {
         onHold: true,
@@ -198,6 +201,9 @@ export class SchedularService {
         onHold: false,
         holdExpiry: null,
         holdBy: null,
+        fromDate: null,
+        toDate: null,
+        timeSlot: null,
       },
     });
 
@@ -211,6 +217,9 @@ export class SchedularService {
         onHold: false,
         holdExpiry: null,
         holdBy: null,
+        fromDate: null,
+        toDate: null,
+        timeSlot: null,
       },
     });
     const totalExpired =

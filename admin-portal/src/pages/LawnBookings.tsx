@@ -3,8 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Edit, XCircle, Loader2, User, Search, Receipt, NotepadText } from "lucide-react";
+import { Plus, Edit, XCircle, Loader2, User, Search, Receipt, NotepadText, Calendar as CalendarIcon } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -250,6 +253,7 @@ export default function LawnBookings() {
   const [paidAmount, setPaidAmount] = useState(0);
   const [calculatedPrice, setCalculatedPrice] = useState(0);
   const [bookingDate, setBookingDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [guestCount, setGuestCount] = useState(0);
   const [eventTime, setEventTime] = useState("NIGHT");
   const [eventType, setEventType] = useState("");
@@ -520,6 +524,7 @@ export default function LawnBookings() {
     setPaidAmount(0);
     setPricingType("member");
     setBookingDate("");
+    setEndDate("");
     setGuestCount(0);
     setEventTime("NIGHT");
     setEventType("");
@@ -561,6 +566,7 @@ export default function LawnBookings() {
       membershipNo: selectedMember.Membership_No,
       entityId: selectedLawn,
       bookingDate: new Date(bookingDate).toISOString(),
+      endDate: endDate ? new Date(endDate).toISOString() : new Date(bookingDate).toISOString(),
       totalPrice: calculatedPrice.toString(),
       paymentStatus: paymentStatus,
       numberOfGuests: guestCount,
@@ -795,15 +801,53 @@ export default function LawnBookings() {
                 </div>
                 <div>
                   <Label>Booking Date *</Label>
-                  <UnifiedDatePicker
-                    value={bookingDate}
-                    onChange={(date) => {
-                      const dateStr = date ? format(date, "yyyy-MM-dd") : "";
-                      setBookingDate(dateStr);
-                    }}
-                    placeholder="Select booking date"
-                    minDate={new Date()}
-                  />
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant={"outline"}
+                        className={cn(
+                          "w-full justify-start text-left font-normal mt-2",
+                          !bookingDate && "text-muted-foreground"
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {bookingDate ? (
+                          endDate ? (
+                            <>
+                              {format(new Date(bookingDate), "LLL dd, y")} -{" "}
+                              {format(new Date(endDate), "LLL dd, y")}
+                            </>
+                          ) : (
+                            format(new Date(bookingDate), "LLL dd, y")
+                          )
+                        ) : (
+                          <span>Pick a date</span>
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="range"
+                        selected={{
+                          from: bookingDate ? new Date(bookingDate) : undefined,
+                          to: endDate ? new Date(endDate) : undefined,
+                        }}
+                        onSelect={(range) => {
+                          if (range?.from) {
+                            setBookingDate(format(range.from, "yyyy-MM-dd"));
+                            setEndDate(range.to ? format(range.to, "yyyy-MM-dd") : "");
+                          } else {
+                            setBookingDate("");
+                            setEndDate("");
+                          }
+                        }}
+                        disabled={(date) =>
+                          date < new Date(new Date().setHours(0, 0, 0, 0))
+                        }
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div>
                   <Label>Event Type *</Label>

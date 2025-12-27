@@ -69,13 +69,14 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import {
+  getHalls,
   createHall as createHallApi,
   updateHall as updateHallApi,
-  getHalls,
   deleteHall as deleteHallApi,
   reserveHall,
   getHallLogs,
 } from "../../config/apis";
+import { checkHallConflicts } from "@/utils/hallBookingUtils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -421,6 +422,7 @@ function HallDetailDialog({
                             <TableHead className="text-[11px] h-9 text-slate-500">Reserved From</TableHead>
                             <TableHead className="text-[11px] h-9 text-slate-500">Reserved To</TableHead>
                             <TableHead className="text-[11px] h-9 text-slate-500">Time Slot</TableHead>
+                            <TableHead className="text-[11px] h-9 text-slate-500">Remarks</TableHead>
                             <TableHead className="text-[11px] h-9 text-slate-500">Reserved By</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -436,6 +438,9 @@ function HallDetailDialog({
                                 </TableCell>
                                 <TableCell className="text-xs py-2 text-slate-600">
                                   {res.timeSlot}
+                                </TableCell>
+                                <TableCell className="text-xs py-2 text-slate-600 italic">
+                                  {res.remarks || "-"}
                                 </TableCell>
                                 <TableCell className="text-xs py-2">
                                   <div className="flex items-center gap-2 text-slate-600">
@@ -604,6 +609,7 @@ export default function Halls() {
     to: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split("T")[0],
   });
   const [selectedTimeSlot, setSelectedTimeSlot] = useState("MORNING");
+  const [reservationRemarks, setReservationRemarks] = useState("");
   const [detailHall, setDetailHall] = useState<Hall | null>(null);
   const [detailLogs, setDetailLogs] = useState<any>(null);
   const [logLoading, setLogLoading] = useState(false);
@@ -633,6 +639,7 @@ export default function Halls() {
     chargesGuests: "",
     description: "",
     isActive: true,
+    isExclusive: false,
     outOfOrders: [] as OutOfOrderPeriod[],
     images: [] as File[],
   });
@@ -645,6 +652,7 @@ export default function Halls() {
     chargesGuests: "",
     description: "",
     isActive: true,
+    isExclusive: false,
     outOfOrders: [] as OutOfOrderPeriod[],
     existingImages: [] as string[],
     newImages: [] as File[],
@@ -741,6 +749,16 @@ export default function Halls() {
     return statuses;
   }, [selectedHalls, halls]);
 
+  // Sync selectedHalls with currently reserved halls when dialog opens or dates/slot change
+  useEffect(() => {
+    if (reserveDialog && reserveDates.from && reserveDates.to && selectedTimeSlot) {
+      const reservedHallIds = halls
+        .filter((hall: Hall) => isHallReservedForDates(hall))
+        .map((hall) => hall.id);
+      setSelectedHalls(reservedHallIds);
+    }
+  }, [reserveDialog, reserveDates.from, reserveDates.to, selectedTimeSlot, halls]);
+
   const reserveMutation = useMutation({
     mutationFn: ({
       hallIds,
@@ -748,18 +766,21 @@ export default function Halls() {
       reserveFrom,
       reserveTo,
       timeSlot,
+      remarks,
     }: {
-      hallIds: string[];
+      hallIds: any[];
       reserve: boolean;
       reserveFrom?: string;
       reserveTo?: string;
       timeSlot?: string;
-    }) => reserveHall(hallIds, reserve, timeSlot, reserveFrom, reserveTo),
+      remarks?: string;
+    }) => reserveHall(hallIds, reserve, timeSlot, reserveFrom, reserveTo, remarks),
     onSuccess: (data) => {
       toast({
         title: "Reservations updated successfully",
         description: data.message,
       });
+      setReservationRemarks(""); // Reset remarks after successful reservation
       queryClient.invalidateQueries({ queryKey: ["halls"] });
     },
     onError: (err: any) => {
@@ -786,7 +807,7 @@ export default function Halls() {
     if (new Date(newOutOfOrder.startDate) > new Date(newOutOfOrder.endDate)) {
       toast({
         title: "Invalid date range",
-        description: "End date must be after start date",
+        description: "End date cannot be before start date",
         variant: "destructive",
       });
       return;
@@ -826,7 +847,7 @@ export default function Halls() {
     if (new Date(editNewOutOfOrder.startDate) > new Date(editNewOutOfOrder.endDate)) {
       toast({
         title: "Invalid date range",
-        description: "End date must be after start date",
+        description: "End date cannot be before start date",
         variant: "destructive",
       });
       return;
@@ -889,45 +910,6 @@ export default function Halls() {
     });
   };
 
-  const hasOverlappingReservations = (hall: Hall) => {
-    if (!reserveDates.from || !reserveDates.to || !selectedTimeSlot) return false;
-
-    const selectedFrom = new Date(reserveDates.from);
-    const selectedTo = new Date(reserveDates.to);
-
-    // Normalize dates to compare only the date part
-    selectedFrom.setHours(0, 0, 0, 0);
-    selectedTo.setHours(0, 0, 0, 0);
-
-    return hall.reservations?.some((reservation) => {
-      const reservationFrom = new Date(reservation.reservedFrom);
-      const reservationTo = new Date(reservation.reservedTo);
-
-      // Normalize reservation dates
-      reservationFrom.setHours(0, 0, 0, 0);
-      reservationTo.setHours(0, 0, 0, 0);
-
-      // Must be the same time slot to be a conflict
-      const isSameTimeSlot = reservation.timeSlot === selectedTimeSlot;
-      if (!isSameTimeSlot) return false;
-
-      // Check for date overlap (inclusive of start/end dates)
-      const hasDateOverlap =
-        selectedFrom <= reservationTo &&
-        selectedTo >= reservationFrom;
-
-      if (!hasDateOverlap) return false;
-
-      // Check if it's an exact match (same dates AND same time slot)
-      const isExactMatch =
-        reservationFrom.getTime() === selectedFrom.getTime() &&
-        reservationTo.getTime() === selectedTo.getTime() &&
-        reservation.timeSlot === selectedTimeSlot;
-
-      // It's a conflict only if dates overlap with same time slot but NOT an exact match
-      return !isExactMatch;
-    });
-  };
 
   const isHallReservedForDates = (hall: Hall) => {
     if (!reserveDates.from || !reserveDates.to || !selectedTimeSlot) return false;
@@ -957,38 +939,12 @@ export default function Halls() {
     });
   };
 
-  // Handle hall selection with reservation cancellation
+  // Handle hall selection in reservation dialog
   const handleHallSelection = (hallId: string, checked: boolean) => {
-    const hall = halls.find((h: Hall) => h.id === hallId);
-    const isCurrentlyReserved = hall && isHallReservedForDates(hall);
-
     if (checked) {
       setSelectedHalls((prev) => [...prev, hallId]);
     } else {
       setSelectedHalls((prev) => prev.filter((id) => id !== hallId));
-
-      if (isCurrentlyReserved && reserveDates.from && reserveDates.to && selectedTimeSlot) {
-        const fromDate = new Date(reserveDates.from);
-        const toDate = new Date(reserveDates.to);
-        const today = new Date();
-
-        if (fromDate < toDate) {
-          reserveMutation.mutate({
-            hallIds: [hallId],
-            reserve: false,
-            reserveFrom: reserveDates.from,
-            reserveTo: reserveDates.to,
-            timeSlot: selectedTimeSlot,
-          });
-        } else {
-          toast({
-            title: "Cannot remove reservation",
-            description: "Selected dates are invalid",
-            variant: "destructive",
-          });
-          setSelectedHalls((prev) => [...prev, hallId]);
-        }
-      }
     }
   };
 
@@ -1043,15 +999,26 @@ export default function Halls() {
     );
 
     // Check for overlapping reservations only for NEW reservations
-    const hallsWithOverlaps = hallsToReserve.filter((hallId) => {
-      const hall = halls.find((h: Hall) => h.id === hallId);
-      return hall && hasOverlappingReservations(hall);
+    const allBookings = halls.flatMap(h => h.bookings || []);
+    const allReservations = halls.flatMap(h => h.reservations || []);
+
+    const hallsWithConflicts = hallsToReserve.filter((hallId) => {
+      const conflict = checkHallConflicts(
+        hallId.toString(),
+        reserveDates.from,
+        reserveDates.to,
+        selectedTimeSlot,
+        allBookings,
+        halls,
+        allReservations
+      );
+      return conflict.hasConflict;
     });
 
-    if (hallsWithOverlaps.length > 0) {
+    if (hallsWithConflicts.length > 0) {
       toast({
-        title: "Overlapping reservations detected",
-        description: `${hallsWithOverlaps.length} hall(s) have overlapping reservations that conflict with the selected dates and time slot`,
+        title: "Conflicts detected",
+        description: `${hallsWithConflicts.length} hall(s) have conflicts (Bookings, Maintenance, or other Reservations) that prevent reservation`,
         variant: "destructive",
       });
       return;
@@ -1074,6 +1041,7 @@ export default function Halls() {
         reserveFrom: reserveDates.from,
         reserveTo: reserveDates.to,
         timeSlot: selectedTimeSlot,
+        remarks: reservationRemarks,
       });
     }
 
@@ -1084,6 +1052,7 @@ export default function Halls() {
         reserveFrom: reserveDates.from,
         reserveTo: reserveDates.to,
         timeSlot: selectedTimeSlot,
+        remarks: reservationRemarks,
       });
     }
   };
@@ -1122,7 +1091,7 @@ export default function Halls() {
       if (new Date(period.startDate) > new Date(period.endDate)) {
         toast({
           title: "Invalid date range",
-          description: "End date must be after start date for all maintenance periods",
+          description: "End date cannot be before start date for all maintenance periods",
           variant: "destructive"
         });
         return false;
@@ -1143,6 +1112,7 @@ export default function Halls() {
     fd.append("chargesGuests", form.chargesGuests || "0");
     fd.append("description", form.description);
     fd.append("isActive", String(form.isActive));
+    fd.append("isExclusive", String(form.isExclusive));
 
     // Add out of order periods if any
     if (form.outOfOrders.length > 0) {
@@ -1169,6 +1139,7 @@ export default function Halls() {
       chargesGuests: "",
       description: "",
       isActive: true,
+      isExclusive: false,
       outOfOrders: [],
       images: [],
     });
@@ -1195,6 +1166,7 @@ export default function Halls() {
         chargesGuests: editHall.chargesGuests || "",
         description: editHall.description || "",
         isActive: editHall.isActive || false,
+        isExclusive: editHall.isExclusive || false,
         outOfOrders: outOfOrders,
         existingImages:
           editHall.images?.map((img: any) => img.publicId || img.url || img) ||
@@ -1285,6 +1257,7 @@ export default function Halls() {
     fd.append("chargesGuests", editForm.chargesGuests);
     fd.append("description", editForm.description);
     fd.append("isActive", String(editForm.isActive));
+    fd.append("isExclusive", String(editForm.isExclusive));
 
     // Add out of order periods if any
     if (editForm.outOfOrders.length > 0) {
@@ -1300,7 +1273,6 @@ export default function Halls() {
     if (deleteHallData) deleteMutation.mutate(deleteHallData.id);
   };
 
-  // Helper functions for out-of-order periods
   const isCurrentlyOutOfOrder = (hall: Hall) => {
     if (hall.isOutOfService) return true;
     const now = new Date();
@@ -1308,6 +1280,33 @@ export default function Halls() {
       const startDate = new Date(period.startDate);
       const endDate = new Date(period.endDate);
       return startDate <= now && endDate >= now;
+    });
+  };
+
+  const isCurrentlyHeld = (hall: Hall) => {
+    const now = new Date();
+    const dateString = format(now, "yyyy-MM-dd");
+    // Determine current slot based on time
+    const hours = now.getHours();
+    let currentSlot = "";
+    if (hours >= 8 && hours < 14) currentSlot = "MORNING";
+    else if (hours >= 14 && hours < 20) currentSlot = "EVENING";
+    else if (hours >= 20 || hours < 8) currentSlot = "NIGHT";
+
+    return hall.holdings?.some(hold => {
+      if (!hold.onHold) return false;
+      const holdExpiry = new Date(hold.holdExpiry);
+      if (holdExpiry < now) return false;
+
+      if (hold.fromDate && hold.toDate) {
+        const hStart = format(new Date(hold.fromDate), "yyyy-MM-dd");
+        const hEnd = format(new Date(hold.toDate), "yyyy-MM-dd");
+        if (dateString >= hStart && dateString <= hEnd) {
+          return !hold.timeSlot || hold.timeSlot === currentSlot;
+        }
+        return false;
+      }
+      return true; // Legacy hold
     });
   };
 
@@ -1325,6 +1324,10 @@ export default function Halls() {
 
     if (isCurrentlyOutOfOrder(hall)) {
       return "Out of Order";
+    }
+
+    if (isCurrentlyHeld(hall)) {
+      return "On Hold";
     }
 
     if (hasScheduledMaintenance(hall)) {
@@ -1353,6 +1356,10 @@ export default function Halls() {
 
     if (isCurrentlyOutOfOrder(hall)) {
       return "destructive";
+    }
+
+    if (isCurrentlyHeld(hall)) {
+      return "secondary";
     }
 
     if (hasScheduledMaintenance(hall)) {
@@ -1384,19 +1391,6 @@ export default function Halls() {
       );
   };
 
-  // Check if hall has out-of-order periods during selected dates
-  const isOutOfOrderForSelectedDates = (hall: Hall) => {
-    if (!reserveDates.from || !reserveDates.to) return false;
-
-    const selectedFrom = new Date(reserveDates.from);
-    const selectedTo = new Date(reserveDates.to);
-
-    return hall.outOfOrders?.some(period => {
-      const periodStart = new Date(period.startDate);
-      const periodEnd = new Date(period.endDate);
-      return selectedFrom <= periodEnd && selectedTo >= periodStart;
-    });
-  };
 
   const hasActiveFilters = statusFilter !== "ALL";
 
@@ -1529,6 +1523,26 @@ export default function Halls() {
                       }
                       placeholder="35000"
                     />
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 py-2 px-1">
+                  <Checkbox
+                    id="isExclusive"
+                    checked={form.isExclusive}
+                    onCheckedChange={(checked) =>
+                      setForm({ ...form, isExclusive: checked as boolean })
+                    }
+                  />
+                  <div className="grid gap-1.5 leading-none">
+                    <Label
+                      htmlFor="isExclusive"
+                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    >
+                      Exclusive Hall
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Mark this hall as exclusive (e.g., for only members)
+                    </p>
                   </div>
                 </div>
                 <div>
@@ -1727,30 +1741,32 @@ export default function Halls() {
       </div>
 
       {/* Active Filters Display */}
-      {hasActiveFilters && (
-        <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
-          <span className="text-sm font-medium">Active Filters:</span>
-          {statusFilter !== "ALL" && (
-            <Badge variant="secondary" className="gap-1">
-              Status: {statusFilter === "ACTIVE" ? "Active & Available" : "Inactive / Reserved"}
-              <button
-                onClick={() => setStatusFilter("ALL")}
-                className="ml-1 hover:text-destructive"
-              >
-                ×
-              </button>
-            </Badge>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setStatusFilter("ALL")}
-            className="ml-auto text-xs h-7"
-          >
-            Clear All
-          </Button>
-        </div>
-      )}
+      {
+        hasActiveFilters && (
+          <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
+            <span className="text-sm font-medium">Active Filters:</span>
+            {statusFilter !== "ALL" && (
+              <Badge variant="secondary" className="gap-1">
+                Status: {statusFilter === "ACTIVE" ? "Active & Available" : "Inactive / Reserved"}
+                <button
+                  onClick={() => setStatusFilter("ALL")}
+                  className="ml-1 hover:text-destructive"
+                >
+                  ×
+                </button>
+              </Badge>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setStatusFilter("ALL")}
+              className="ml-auto text-xs h-7"
+            >
+              Clear All
+            </Button>
+          </div>
+        )
+      }
 
       <Card>
         <CardContent className="p-0">
@@ -2053,6 +2069,16 @@ export default function Halls() {
                 </Select>
               </div>
             </div>
+            <div className="mt-4">
+              <Label>Remarks</Label>
+              <Textarea
+                value={reservationRemarks}
+                onChange={(e) => setReservationRemarks(e.target.value)}
+                placeholder="Enter any additional details or remarks for this reservation..."
+                className="mt-2"
+                rows={3}
+              />
+            </div>
 
             {/* Summary */}
             {reserveDates.from && reserveDates.to && selectedTimeSlot && (
@@ -2085,27 +2111,31 @@ export default function Halls() {
                 <div className="p-4 grid grid-cols-1 gap-3">
                   {halls?.map((hall: Hall) => {
                     const isReservedForDates = isHallReservedForDates(hall);
-                    const hasOverlap = hasOverlappingReservations(hall);
-                    const isOutOfOrder = isOutOfOrderForSelectedDates(hall);
 
-                    const upcomingReservations = getUpcomingReservations(hall);
+                    // Collect all bookings and reservations for the conflict check
+                    const allBookings = halls.flatMap(h => h.bookings || []);
+                    const allReservations = halls.flatMap(h => h.reservations || []);
 
-                    const isCheckboxDisabled =
-                      hasOverlap ||
-                      isOutOfOrder;
+                    const conflict = checkHallConflicts(
+                      hall.id.toString(),
+                      reserveDates.from,
+                      reserveDates.to,
+                      selectedTimeSlot,
+                      allBookings,
+                      halls,
+                      allReservations
+                    );
+
+                    const isCheckboxDisabled = conflict.hasConflict && !isReservedForDates;
 
                     return (
                       <div
                         key={hall.id}
-                        className={`flex items-center space-x-3 p-3 border rounded-lg ${hasOverlap
-                          ? "bg-orange-50 border-orange-200"
+                        className={`flex items-center space-x-3 p-3 border rounded-lg ${conflict.hasConflict && !isReservedForDates
+                          ? conflict.type === 'BOOKED' ? "bg-red-50 border-red-200" : "bg-orange-50 border-orange-200"
                           : isReservedForDates
                             ? "bg-blue-50 border-blue-200"
-                            : isOutOfOrder
-                              ? "bg-red-50 border-red-200"
-                              : !hall.isActive
-                                ? "bg-gray-50 border-gray-200"
-                                : "bg-white border-gray-200"
+                            : "bg-white border-gray-200"
                           }`}
                       >
                         <Checkbox
@@ -2118,121 +2148,42 @@ export default function Halls() {
                         <div className="flex-1 min-w-0">
                           <div className="font-medium flex items-center gap-2">
                             {hall.name}
-                            {hasOverlap && (
-                              <AlertCircle className="h-4 w-4 text-orange-500" />
-                            )}
-                            {isOutOfOrder && (
-                              <AlertCircle className="h-4 w-4 text-red-500" />
+                            {conflict.hasConflict && !isReservedForDates && (
+                              <AlertCircle className={`h-4 w-4 ${conflict.type === 'BOOKED' ? 'text-red-500' : 'text-orange-500'}`} />
                             )}
                           </div>
                           <div className="text-sm text-muted-foreground">
                             Capacity: {hall.capacity} guests
                           </div>
-                          <div className="text-sm text-muted-foreground truncate">
-                            {hall.description}
-                          </div>
 
-                          {hasOverlap && !isReservedForDates && (
-                            <div className="text-xs text-orange-600 mt-1">
-                              <div className="flex items-center gap-1 mb-1">
-                                <AlertCircle className="h-3 w-3" />
-                                <span className="font-medium">Conflicting reservations:</span>
-                              </div>
-                              {hall.reservations
-                                ?.filter(reservation => {
-                                  const resFrom = new Date(reservation.reservedFrom);
-                                  const resTo = new Date(reservation.reservedTo);
-                                  const selFrom = new Date(reserveDates.from);
-                                  const selTo = new Date(reserveDates.to);
-
-                                  return reservation.timeSlot === selectedTimeSlot &&
-                                    selFrom <= resTo &&
-                                    selTo >= resFrom &&
-                                    !(resFrom.getTime() === selFrom.getTime() && resTo.getTime() === selTo.getTime());
-                                })
-                                .map((reservation, idx) => (
-                                  <div key={reservation.id} className="ml-4 text-xs">
-                                    • {formatDate(reservation.reservedFrom)} - {formatDate(reservation.reservedTo)}
-                                    <span className="text-blue-600 ml-1">({getTimeSlotDisplay(reservation.timeSlot)})</span>
-                                  </div>
-                                ))
-                              }
-                            </div>
-                          )}
-
-                          {isOutOfOrder && (
-                            <div className="text-xs text-red-600 mt-1">
-                              <div className="flex items-center gap-1 mb-1">
-                                <AlertCircle className="h-3 w-3" />
-                                <span className="font-medium">Out of order during selected dates:</span>
-                              </div>
-                              {hall.outOfOrders
-                                ?.filter(period => {
-                                  const periodStart = new Date(period.startDate);
-                                  const periodEnd = new Date(period.endDate);
-                                  const selFrom = new Date(reserveDates.from);
-                                  const selTo = new Date(reserveDates.to);
-
-                                  return selFrom <= periodEnd && selTo >= periodStart;
-                                })
-                                .map((period, idx) => (
-                                  <div key={idx} className="ml-4 text-xs">
-                                    • {formatDate(period.startDate)} - {formatDate(period.endDate)}
-                                    <span className="ml-1">({period.reason})</span>
-                                  </div>
-                                ))
-                              }
+                          {conflict.hasConflict && !isReservedForDates && (
+                            <div className={`text-xs mt-1 flex items-center gap-1 font-medium ${conflict.type === 'BOOKED' ? 'text-red-600' : 'text-orange-600'}`}>
+                              <AlertCircle className="h-3 w-3" />
+                              {conflict.message}
                             </div>
                           )}
 
                           {isReservedForDates && (
-                            <div className="text-xs text-blue-600 mt-1 flex items-center gap-1">
+                            <div className="text-xs text-blue-600 mt-1 flex items-center gap-1 font-medium">
                               <CheckCircle className="h-3 w-3" />
-                              Reserved for these dates and time slot (uncheck to remove)
-                            </div>
-                          )}
-
-                          {!hall.isActive && !isOutOfOrder && !isCheckboxDisabled && (
-                            <div className="text-xs text-yellow-600 mt-1 flex items-center gap-1">
-                              <AlertCircle className="h-3 w-3" />
-                              Inactive but available for selected dates
-                            </div>
-                          )}
-
-                          {isCurrentlyOutOfOrder(hall) && !isOutOfOrder && !isCheckboxDisabled && (
-                            <div className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                              <CheckCircle className="h-3 w-3" />
-                              Available for selected dates (currently out of order for other dates)
-                            </div>
-                          )}
-
-                          {hall.isActive && !isCurrentlyOutOfOrder(hall) && !isCheckboxDisabled && !isReservedForDates && (
-                            <div className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                              <CheckCircle className="h-3 w-3" />
-                              Available for reservation
-                            </div>
-                          )}
-
-                          {upcomingReservations?.length > 0 && (
-                            <div className="text-xs text-gray-500 mt-1">
-                              {upcomingReservations.length} upcoming reservation(s)
+                              Currently Reserved by you (uncheck to remove)
                             </div>
                           )}
                         </div>
                         <Badge
                           variant={
-                            isOutOfOrder
-                              ? "destructive"
-                              : isCurrentlyOutOfOrder(hall)
+                            conflict.hasConflict && !isReservedForDates
+                              ? conflict.type === 'BOOKED' ? "destructive" : "outline"
+                              : isReservedForDates
                                 ? "secondary"
-                                : hall.isReserved
-                                  ? "secondary"
-                                  : !hall.isActive
-                                    ? "secondary"
-                                    : "default"
+                                : "default"
                           }
                         >
-                          {getHallStatus(hall)}
+                          {conflict.hasConflict && !isReservedForDates
+                            ? conflict.type === 'BOOKED' ? "Booked" : "Unavailable"
+                            : isReservedForDates
+                              ? "Reserved"
+                              : "Available"}
                         </Badge>
                       </div>
                     );
@@ -2261,8 +2212,7 @@ export default function Halls() {
                   onClick={() => {
                     setReserveDialog(false);
                     setSelectedHalls([]);
-                    setReserveDates({ from: "", to: "" });
-                    setSelectedTimeSlot("MORNING");
+                    setReservationRemarks("");
                   }}
                 >
                   Cancel
@@ -2399,6 +2349,26 @@ export default function Halls() {
                   checked={editForm.isActive}
                   onCheckedChange={(checked) => {
                     setEditForm({ ...editForm, isActive: checked });
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between p-4 border rounded-lg bg-amber-50 dark:bg-amber-950/20">
+              <div>
+                <Label className="text-base font-medium">Exclusive Status</Label>
+                <p className="text-sm text-muted-foreground">
+                  {editForm.isExclusive
+                    ? "Hall is marked as Exclusive"
+                    : "Not an exclusive hall"}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <Label>Exclusive</Label>
+                <Switch
+                  checked={editForm.isExclusive}
+                  onCheckedChange={(checked) => {
+                    setEditForm({ ...editForm, isExclusive: checked });
                   }}
                 />
               </div>
@@ -2564,6 +2534,6 @@ export default function Halls() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </div >
   );
 }

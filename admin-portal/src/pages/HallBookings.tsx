@@ -242,7 +242,7 @@ const IndividualTimeSlotSelector = ({
       newDetails.push({
         date,
         timeSlot: slot,
-        eventType: sameDayDetail?.eventType || defaultEventType || "wedding"
+        eventType: isHallExclusive ? "corporate" : (sameDayDetail?.eventType || defaultEventType || "wedding")
       });
     }
     onChange(newDetails.sort((a, b) => a.date.localeCompare(b.date)));
@@ -255,15 +255,17 @@ const IndividualTimeSlotSelector = ({
     onChange(newDetails);
   };
 
+  const isHallExclusive = halls.find(h => h.id.toString() === hallId.toString())?.isExclusive;
+
   const eventTypes = [
     { value: "mehandi", label: "Mehandi" },
     { value: "barat", label: "Barat" },
     { value: "walima", label: "Walima" },
     { value: "birthday", label: "Birthday" },
-    { value: "corporate", label: "Corporate" },
+    { value: "corporate", label: "Corporate Event" },
     { value: "wedding", label: "Wedding" },
     { value: "other", label: "Other" },
-  ];
+  ].filter(t => !isHallExclusive || t.value === "corporate");
 
   return (
     <div className="col-span-full mt-2 space-y-4 p-4 bg-muted/10 rounded-xl border border-muted/30">
@@ -420,28 +422,6 @@ export default function HallBookings() {
     return halls.flatMap((hall: any) => hall.reservations || []);
   }, [halls]);
 
-  // Get available time slots for the selected date in create form
-  const availableCreateTimeSlots = useMemo(
-    () => getAvailableTimeSlots(form.hallId, form.bookingDate, bookings, halls, reservations),
-    [form.hallId, form.bookingDate, bookings, halls, reservations]
-  );
-
-  // Get available time slots for the selected date in edit form
-  const availableEditTimeSlots = useMemo(() => {
-    if (!editForm.hallId || !editForm.bookingDate) return [];
-
-    // Filter out the current booking being edited so its own time slot isn't marked as unavailable
-    const otherBookings = bookings.filter(b => b.id?.toString() !== editBooking?.id?.toString());
-
-    return getAvailableTimeSlots(
-      editForm.hallId,
-      editForm.bookingDate,
-      otherBookings,
-      halls,
-      reservations
-    );
-  }, [editForm.hallId, editForm.bookingDate, bookings, halls, editBooking, reservations]);
-
   // Stable search handler with proper cleanup
   const handleMemberSearch = useCallback(
     (searchTerm: string) => {
@@ -580,6 +560,13 @@ export default function HallBookings() {
             newForm.bookingDetails
           );
 
+          // Force Corporate Event Type if hall is exclusive
+          const selectedHall = halls.find(h => h.id.toString() === (field === "hallId" ? value : newForm.hallId).toString());
+          if (selectedHall?.isExclusive) {
+            newForm.eventType = "corporate";
+            newForm.bookingDetails = newForm.bookingDetails.map(d => ({ ...d, eventType: "corporate" }));
+          }
+
           // Update paid/pending amounts based on new total
           const accounting = calculateHallAccountingValues(
             newForm.paymentStatus as PaymentStatus,
@@ -640,7 +627,9 @@ export default function HallBookings() {
         if (["bookingDate", "endDate", "eventType", "numberOfDays"].includes(field as string)) {
           const start = field === "bookingDate" ? value : newForm.bookingDate;
           const end = field === "endDate" ? value : newForm.endDate;
-          const currentPrimaryEventType = field === "eventType" ? value : newForm.eventType;
+          const currentHall = halls.find(h => h.id.toString() === newForm.hallId.toString());
+          const isExclusive = currentHall?.isExclusive;
+          const currentPrimaryEventType = isExclusive ? "corporate" : (field === "eventType" ? value : newForm.eventType);
           const defaultSlot = "EVENING";
 
           if (start) {
@@ -732,6 +721,28 @@ export default function HallBookings() {
       return;
     }
 
+    // Final conflict check before submission
+    const conflict = checkHallConflicts(
+      form.hallId,
+      form.bookingDate,
+      form.endDate || form.bookingDate,
+      form.eventTime,
+      bookings,
+      halls,
+      reservations,
+      undefined,
+      form.bookingDetails
+    );
+
+    if (conflict.hasConflict) {
+      toast({
+        title: "Booking Conflict",
+        description: conflict.message,
+        variant: "destructive",
+      });
+      return;
+    }
+
     const payload = {
       category: "Hall",
       membershipNo: form.membershipNo,
@@ -801,6 +812,28 @@ export default function HallBookings() {
       toast({
         title: "Invalid paid amount",
         description: "Please enter a valid paid amount for half-paid status",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Final conflict check before submission
+    const conflict = checkHallConflicts(
+      editForm.hallId,
+      editForm.bookingDate,
+      editForm.endDate || editForm.bookingDate,
+      editForm.eventTime,
+      bookings,
+      halls,
+      reservations,
+      editBooking?.id?.toString(),
+      editForm.bookingDetails
+    );
+
+    if (conflict.hasConflict) {
+      toast({
+        title: "Booking Conflict",
+        description: conflict.message,
         variant: "destructive",
       });
       return;
@@ -1136,13 +1169,24 @@ export default function HallBookings() {
                       <SelectValue placeholder="Select event type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="mehandi">Mehandi</SelectItem>
-                      <SelectItem value="barat">Barat</SelectItem>
-                      <SelectItem value="walima">Walima</SelectItem>
-                      <SelectItem value="birthday">Birthday</SelectItem>
-                      <SelectItem value="corporate">Corporate Event</SelectItem>
-                      <SelectItem value="wedding">Wedding</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
+                      {(() => {
+                        const selectedHall = halls.find(h => h.id.toString() === form.hallId.toString());
+                        const isExclusive = selectedHall?.isExclusive;
+                        if (isExclusive) {
+                          return <SelectItem value="corporate">Corporate Event</SelectItem>;
+                        }
+                        return (
+                          <>
+                            <SelectItem value="mehandi">Mehandi</SelectItem>
+                            <SelectItem value="barat">Barat</SelectItem>
+                            <SelectItem value="walima">Walima</SelectItem>
+                            <SelectItem value="birthday">Birthday</SelectItem>
+                            <SelectItem value="corporate">Corporate Event</SelectItem>
+                            <SelectItem value="wedding">Wedding</SelectItem>
+                            <SelectItem value="other">Other</SelectItem>
+                          </>
+                        );
+                      })()}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1571,13 +1615,24 @@ export default function HallBookings() {
                   <SelectValue placeholder="Select event type" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="mehandi">Mehandi</SelectItem>
-                  <SelectItem value="barat">Barat</SelectItem>
-                  <SelectItem value="walima">Walima</SelectItem>
-                  <SelectItem value="birthday">Birthday</SelectItem>
-                  <SelectItem value="corporate">Corporate Event</SelectItem>
-                  <SelectItem value="wedding">Wedding</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
+                  {(() => {
+                    const selectedHall = halls.find(h => h.id.toString() === editForm.hallId.toString());
+                    const isExclusive = selectedHall?.isExclusive;
+                    if (isExclusive) {
+                      return <SelectItem value="corporate">Corporate Event</SelectItem>;
+                    }
+                    return (
+                      <>
+                        <SelectItem value="mehandi">Mehandi</SelectItem>
+                        <SelectItem value="barat">Barat</SelectItem>
+                        <SelectItem value="walima">Walima</SelectItem>
+                        <SelectItem value="birthday">Birthday</SelectItem>
+                        <SelectItem value="corporate">Corporate Event</SelectItem>
+                        <SelectItem value="wedding">Wedding</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </>
+                    );
+                  })()}
                 </SelectContent>
               </Select>
             </div>

@@ -48,7 +48,7 @@ export class HallController {
     @UploadedFiles() files: Express.Multer.File[],
     @Body() payload: HallDto,
   ) {
-    return this.hall.createHall({ ...payload, isActive: Boolean(payload.isActive) }, files);
+    return this.hall.createHall({ ...payload, isActive: payload.isActive === 'true' || payload.isActive === true, isExclusive: payload.isExclusive === 'true' || payload.isExclusive === true }, files);
   }
 
   @UseGuards(JwtAccGuard, RolesGuard)
@@ -60,12 +60,11 @@ export class HallController {
     @Body() payload: HallDto,
   ) {
     console.log(payload.isActive)
-    return this.hall.updateHall({ ...payload, isActive: payload.isActive = payload.isActive === 'true' || payload.isActive === true }, files);
+    return this.hall.updateHall({ ...payload, isActive: payload.isActive === 'true' || payload.isActive === true, isExclusive: payload.isExclusive === 'true' || payload.isExclusive === true }, files);
   }
 
   @UseGuards(JwtAccGuard, RolesGuard)
   @Roles(RolesEnum.SUPER_ADMIN)
-  @UseInterceptors(FilesInterceptor('files'))
   @Delete('delete/hall')
   async deleteHall(@Query('hallId') hallId: string) {
     return this.hall.deleteHall(Number(hallId));
@@ -85,6 +84,7 @@ export class HallController {
       timeSlot: string;
       reserveFrom?: string;
       reserveTo?: string;
+      remarks?: string;
     },
   ) {
     return await this.hall.reserveHalls(
@@ -94,6 +94,7 @@ export class HallController {
       payload.timeSlot,
       payload.reserveFrom,
       payload.reserveTo,
+      payload.remarks,
     );
   }
 

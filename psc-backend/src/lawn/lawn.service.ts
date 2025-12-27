@@ -541,27 +541,23 @@ export class LawnService {
         );
       }
 
-      const fromDate = parsePakistanDate(reserveFrom);
-      const toDate = parsePakistanDate(reserveTo);
+      const reservedFrom = new Date(reserveFrom);
+      const reservedTo = new Date(reserveTo);
 
-      const setTimeToMidnightUTC = (date: Date) => {
-        const d = new Date(date);
-        d.setUTCHours(0, 0, 0, 0);
-        return d;
-      };
-
-      const reservedFrom = setTimeToMidnightUTC(fromDate);
-      const reservedTo = setTimeToMidnightUTC(toDate);
+      // Ensure dates are valid
+      if (isNaN(reservedFrom.getTime()) || isNaN(reservedTo.getTime())) {
+        throw new HttpException('Invalid date format', HttpStatus.BAD_REQUEST);
+      }
 
       const today = new Date();
-      today.setUTCHours(0, 0, 0, 0);
+      today.setHours(0, 0, 0, 0);
 
       const fromDateOnly = reservedFrom.getTime();
       const toDateOnly = reservedTo.getTime();
 
-      if (fromDateOnly >= toDateOnly) {
+      if (fromDateOnly > toDateOnly) {
         throw new HttpException(
-          'Reservation end date must be after start date',
+          'Reservation end date cannot be before start date',
           HttpStatus.BAD_REQUEST,
         );
       }

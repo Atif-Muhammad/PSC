@@ -1,6 +1,6 @@
 import axios from "axios";
-// const base_url = "http://localhost:3000/api";
-const base_url = "http://193.203.169.122:8080/api";
+const base_url = "http://localhost:3000/api";
+// const base_url = "http://193.203.169.122:8080/api";
 
 export const authAdmin = async (data: any): Promise<any> => {
   try {
@@ -685,9 +685,14 @@ export const reserveHall = async (
   timeSlot: string,
   reserveFrom?: string,
   reserveTo?: string,
+  remarks?: string,
 ): Promise<any> => {
   try {
     const payload: any = { hallIds, reserve, timeSlot };
+
+    if (remarks) {
+      payload.remarks = remarks;
+    }
 
     // Always include reserveFrom and reserveTo if they are provided
     // The backend needs them to identify which specific reservation to remove

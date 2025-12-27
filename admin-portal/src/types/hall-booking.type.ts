@@ -58,6 +58,7 @@ export interface Hall {
   chargesGuests: number;
   description: string;
   isActive: boolean;
+  isExclusive: boolean;
   isOutOfService: boolean;
   isReserved: boolean;
   isBooked: boolean;
@@ -69,6 +70,7 @@ export interface Hall {
   guestContact?: ""
   reservations: any[];
   bookings: HallBooking[];
+  holdings?: any[];
   images: any[];
   outOfOrders?: any[];
 }

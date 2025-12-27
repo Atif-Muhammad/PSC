@@ -36,6 +36,8 @@ export class HallDto {
   @IsNotEmpty({ message: "hall activity must be provided" })
   isActive: boolean | string;
   @IsOptional()
+  isExclusive?: boolean | string;
+  @IsOptional()
   isOutOfService?: boolean | string;
   @IsOptional()
   outOfOrders?: OutOfOrderPeriod[];

@@ -175,6 +175,8 @@ model LawnBooking {
   pricingType   String
   paidAmount    Decimal       @default(0.00) @db.Decimal(30, 2)
   pendingAmount Decimal       @default(0.00) @db.Decimal(30, 2)
+  numberOfDays   Int           @default(1)
+  endDate        DateTime      @default(now())
 
   guestName    String? @db.Text
   guestContact String? @db.Text
@@ -408,6 +410,7 @@ model Hall {
   chargesGuests  Decimal @default(0.00) @db.Decimal(30, 2)
 
   isActive    Boolean          @default(true)
+  isExclusive Boolean          @default(false)
   isOutOfService Boolean      @default(false)
   outOfOrders HallOutOfOrder[]
 
@@ -429,6 +432,9 @@ model hallHoldings {
   id Int @id @unique @default(autoincrement())
   onHold       Boolean           @default(false)
   holdExpiry   DateTime?
+  fromDate     DateTime? // Added for exact date holding
+  toDate       DateTime? // Added for exact date holding
+  timeSlot     String?           @db.VarChar(20) // MORNING, EVENING, NIGHT
   holdBy       String?
   holdMember   Member?           @relation(fields: [holdBy], references: [Membership_No])
   hallId Int
@@ -463,6 +469,7 @@ model HallReservation {
   reservedBy   Int
   timeSlot     String   @default("MORNING") @db.VarChar(20) // MORNING, EVENING, NIGHT
   admin        Admin    @relation(fields: [reservedBy], references: [id])
+  remarks      String?  @db.Text
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -512,6 +519,9 @@ model lawnHoldings {
   id Int @id @unique @default(autoincrement())
   onHold       Boolean           @default(false)
   holdExpiry   DateTime?
+  fromDate     DateTime? // Added for exact date holding
+  toDate       DateTime? // Added for exact date holding
+  timeSlot     String?           @db.VarChar(20) // MORNING, EVENING, NIGHT
   holdBy       String?
   holdMember   Member?           @relation(fields: [holdBy], references: [Membership_No])
   lawnId Int

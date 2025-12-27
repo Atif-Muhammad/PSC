@@ -16,13 +16,22 @@ import {
   Trash2,
   FileDown,
   Loader2,
-  Calendar,
+  Calendar as CalendarIcon,
   AlertCircle,
   Sun,
   Moon,
   Sunset,
   Clock,
+  NotepadText,
 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
+import { format } from "date-fns";
 import {
   Dialog,
   DialogContent,
@@ -143,10 +152,8 @@ const initialOutOfOrderState: LawnOutOfOrder = {
   endDate: "",
 };
 
-const getUTCMidnight = (dateString: string) => {
-  const d = new Date(dateString);
-  d.setUTCHours(0, 0, 0, 0);
-  return d.getTime();
+const getDaySortKey = (dateString: string) => {
+  return format(new Date(dateString), "yyyy-MM-dd");
 };
 
 const formatDate = (dateString: string) => {
@@ -261,13 +268,60 @@ const OutOfOrderPeriods = ({
           <Label className="text-[10px] uppercase font-bold text-muted-foreground">Reason</Label>
           <Input value={newPeriod.reason} onChange={(e) => onNewPeriodChange({ ...newPeriod, reason: e.target.value })} placeholder="Maintenance Reason" />
         </div>
-        <div>
-          <Label className="text-[10px] uppercase font-bold text-muted-foreground">Start Date</Label>
-          <Input type="date" value={newPeriod.startDate} onChange={(e) => onNewPeriodChange({ ...newPeriod, startDate: e.target.value })} />
-        </div>
-        <div>
-          <Label className="text-[10px] uppercase font-bold text-muted-foreground">End Date</Label>
-          <Input type="date" value={newPeriod.endDate} onChange={(e) => onNewPeriodChange({ ...newPeriod, endDate: e.target.value })} />
+        <div className="col-span-2">
+          <Label className="text-[10px] uppercase font-bold text-muted-foreground">Date Range</Label>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                id="date"
+                variant={"outline"}
+                className={cn(
+                  "w-full justify-start text-left font-normal h-10 bg-white border-input shadow-sm mt-1",
+                  !newPeriod.startDate && "text-muted-foreground"
+                )}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {newPeriod.startDate ? (
+                  newPeriod.endDate && newPeriod.endDate !== newPeriod.startDate ? (
+                    <>
+                      {format(new Date(newPeriod.startDate), "LLL dd, y")} -{" "}
+                      {format(new Date(newPeriod.endDate), "LLL dd, y")}
+                    </>
+                  ) : (
+                    format(new Date(newPeriod.startDate), "LLL dd, y")
+                  )
+                ) : (
+                  <span>Select dates</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                initialFocus
+                mode="range"
+                defaultMonth={newPeriod.startDate ? new Date(newPeriod.startDate) : new Date()}
+                selected={{
+                  from: newPeriod.startDate ? new Date(newPeriod.startDate) : undefined,
+                  to: newPeriod.endDate ? new Date(newPeriod.endDate) : undefined,
+                }}
+                onSelect={(range) => {
+                  if (range?.from) {
+                    const fromStr = format(range.from, "yyyy-MM-dd");
+                    const toStr = range.to ? format(range.to, "yyyy-MM-dd") : fromStr;
+                    onNewPeriodChange({ ...newPeriod, startDate: fromStr, endDate: toStr });
+                  } else {
+                    onNewPeriodChange({ ...newPeriod, startDate: "", endDate: "" });
+                  }
+                }}
+                numberOfMonths={2}
+                disabled={(date) => {
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  return date < today;
+                }}
+              />
+            </PopoverContent>
+          </Popover>
         </div>
         <Button size="sm" className="col-span-2 h-8" variant="secondary" onClick={onAddPeriod} disabled={!newPeriod.reason || !newPeriod.startDate || !newPeriod.endDate}>
           <Plus className="h-3 w-3 mr-1" /> Add Period
@@ -364,12 +418,12 @@ export default function Lawns() {
 
   useEffect(() => {
     if (reserveDialog && reserveDates.from && reserveDates.to && selectedTimeSlot) {
-      const selectedFrom = getUTCMidnight(reserveDates.from);
-      const selectedTo = getUTCMidnight(reserveDates.to);
+      const selectedFrom = getDaySortKey(reserveDates.from);
+      const selectedTo = getDaySortKey(reserveDates.to);
       const reserved = lawns.filter((l: Lawn) =>
         l.reservations?.some(r =>
-          getUTCMidnight(r.reservedFrom) === selectedFrom &&
-          getUTCMidnight(r.reservedTo) === selectedTo &&
+          getDaySortKey(r.reservedFrom) === selectedFrom &&
+          getDaySortKey(r.reservedTo) === selectedTo &&
           r.timeSlot === selectedTimeSlot
         )
       ).map((l: Lawn) => l.id);
@@ -388,9 +442,9 @@ export default function Lawns() {
 
   const handleBulkReserve = () => {
     if (!reserveDates.from || !reserveDates.to) return;
-    const sFrom = getUTCMidnight(reserveDates.from);
-    const sTo = getUTCMidnight(reserveDates.to);
-    const currentlyReserved = lawns.filter((l: Lawn) => l.reservations?.some(r => getUTCMidnight(r.reservedFrom) === sFrom && getUTCMidnight(r.reservedTo) === sTo && r.timeSlot === selectedTimeSlot)).map((l: Lawn) => l.id);
+    const sFrom = getDaySortKey(reserveDates.from);
+    const sTo = getDaySortKey(reserveDates.to);
+    const currentlyReserved = lawns.filter((l: Lawn) => l.reservations?.some(r => getDaySortKey(r.reservedFrom) === sFrom && getDaySortKey(r.reservedTo) === sTo && r.timeSlot === selectedTimeSlot)).map((l: Lawn) => l.id);
     const toReserve = selectedLawns.filter(id => !currentlyReserved.includes(id));
     const toUnreserve = currentlyReserved.filter(id => !selectedLawns.includes(id));
     if (toReserve.length > 0) reserveMutation.mutate({ lawnIds: toReserve, reserve: true, reserveFrom: reserveDates.from, reserveTo: reserveDates.to, timeSlot: selectedTimeSlot });
@@ -404,26 +458,28 @@ export default function Lawns() {
           <h1 className="text-4xl font-bold">Lawn Management</h1>
           <p className="text-muted-foreground">Manage lawn categories, status, and reservations</p>
         </div>
+
         <div className="flex gap-3">
+          <div className="flex justify-end gap-4">
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-64"><SelectValue placeholder="All Categories" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Categories</SelectItem>
+                {categories.map((c: any) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
           <Button variant="outline" className="gap-2 border-orange-200 bg-orange-50 text-orange-700" onClick={() => setReserveDialog(true)}>
-            <Calendar className="h-4 w-4" /> Reservations
+            <CalendarIcon className="h-4 w-4" /> Reservations
           </Button>
           <Button onClick={() => { setForm(initialFormState); setIsAddOpen(true); }}>
             <Plus className="h-4 w-4 mr-2" /> Add Lawn
           </Button>
         </div>
+
+
       </div>
 
-      <div className="flex justify-end gap-4">
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-          <SelectTrigger className="w-64"><SelectValue placeholder="All Categories" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All Categories</SelectItem>
-            {categories.map((c: any) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Button variant="outline" onClick={() => exportLawnsReport(lawns)}><FileDown className="h-4 w-4 mr-2" /> Export</Button>
-      </div>
 
       <Card>
         <CardContent className="p-0">
@@ -450,8 +506,8 @@ export default function Lawns() {
                     <TableCell><MaintenanceIndicator outOfOrders={l.outOfOrders} isOutOfService={l.isOutOfService} /></TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1">
-                        {l.reservations?.filter((r: any) => getUTCMidnight(r.reservedFrom) >= new Date().setUTCHours(0, 0, 0, 0))
-                          .sort((a: any, b: any) => getUTCMidnight(a.reservedFrom) - getUTCMidnight(b.reservedFrom))
+                        {l.reservations?.filter((r: any) => new Date(r.reservedFrom).getTime() >= new Date().setUTCHours(0, 0, 0, 0))
+                          .sort((a: any, b: any) => new Date(a.reservedFrom).getTime() - new Date(b.reservedFrom).getTime())
                           .slice(0, 2).map((r: any) => (
                             <div key={r.id} className="text-[10px] bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 flex items-center gap-1">
                               {getTimeSlotIcon(r.timeSlot)} {formatDate(r.reservedFrom)} - {formatDate(r.reservedTo)}
@@ -478,29 +534,65 @@ export default function Lawns() {
       }}>
         <DialogContent className="max-w-7xl">
           <DialogHeader><DialogTitle>Bulk Reservations</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-3 gap-4 p-4 bg-muted/40 rounded-lg">
-            <div>
-              <Label className="text-xs font-semibold">From Date</Label>
-              <Input
-                type="date"
-                min={new Date().toISOString().split('T')[0]}
-                value={reserveDates.from}
-                onChange={e => setReserveDates(p => ({ ...p, from: e.target.value }))}
-              />
+          <div className="flex flex-col md:flex-row gap-4 p-4 bg-muted/40 rounded-lg items-end">
+            <div className="flex-1">
+              <Label className="text-xs font-semibold">Select Date Range</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={"outline"}
+                    className={cn(
+                      "w-full justify-start text-left font-normal h-10 bg-white border-input shadow-sm mt-1",
+                      !reserveDates.from && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {reserveDates.from ? (
+                      reserveDates.to && reserveDates.to !== reserveDates.from ? (
+                        <>
+                          {format(new Date(reserveDates.from), "LLL dd, y")} -{" "}
+                          {format(new Date(reserveDates.to), "LLL dd, y")}
+                        </>
+                      ) : (
+                        format(new Date(reserveDates.from), "LLL dd, y")
+                      )
+                    ) : (
+                      <span>Select dates</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    initialFocus
+                    mode="range"
+                    defaultMonth={reserveDates.from ? new Date(reserveDates.from) : new Date()}
+                    selected={{
+                      from: reserveDates.from ? new Date(reserveDates.from) : undefined,
+                      to: reserveDates.to ? new Date(reserveDates.to) : undefined,
+                    }}
+                    onSelect={(range) => {
+                      if (range?.from) {
+                        const fromStr = format(range.from, "yyyy-MM-dd");
+                        const toStr = range.to ? format(range.to, "yyyy-MM-dd") : fromStr;
+                        setReserveDates({ from: fromStr, to: toStr });
+                      } else {
+                        setReserveDates({ from: "", to: "" });
+                      }
+                    }}
+                    numberOfMonths={2}
+                    disabled={(date) => {
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      return date < today;
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
-            <div>
-              <Label className="text-xs font-semibold">To Date (Checkout)</Label>
-              <Input
-                type="date"
-                min={reserveDates.from || new Date().toISOString().split('T')[0]}
-                value={reserveDates.to}
-                onChange={e => setReserveDates(p => ({ ...p, to: e.target.value }))}
-              />
-            </div>
-            <div>
+            <div className="w-full md:w-[300px]">
               <Label className="text-xs font-semibold">Time Slot</Label>
               <Select value={selectedTimeSlot} onValueChange={setSelectedTimeSlot}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className="mt-1 h-10 bg-white shadow-sm"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="MORNING">Morning (8:00 AM - 1:00 PM)</SelectItem>
                   <SelectItem value="EVENING">Evening (2:00 PM - 7:00 PM)</SelectItem>
@@ -509,11 +601,10 @@ export default function Lawns() {
               </Select>
             </div>
           </div>
-
-          {reserveDates.from && reserveDates.to && getUTCMidnight(reserveDates.from) >= getUTCMidnight(reserveDates.to) && (
+          {reserveDates.from && reserveDates.to && getDaySortKey(reserveDates.from) > getDaySortKey(reserveDates.to) && (
             <div className="px-4 py-2 bg-red-50 border border-red-200 rounded-md flex items-center gap-2 text-red-700 text-sm">
               <AlertCircle className="h-4 w-4" />
-              <span>Checkout date must be after the start date.</span>
+              <span>End date cannot be before start date.</span>
             </div>
           )}
 
@@ -528,15 +619,15 @@ export default function Lawns() {
                         if (checked) {
                           const nonConflicted = filteredLawns
                             .filter(l => {
-                              const mFrom = getUTCMidnight(reserveDates.from);
-                              const mTo = getUTCMidnight(reserveDates.to);
+                              const mFrom = getDaySortKey(reserveDates.from);
+                              const mTo = getDaySortKey(reserveDates.to);
                               const hasMaintenance = l.outOfOrders?.some(oo => {
-                                const s = getUTCMidnight(oo.startDate);
-                                const e = getUTCMidnight(oo.endDate);
+                                const s = getDaySortKey(oo.startDate);
+                                const e = getDaySortKey(oo.endDate);
                                 return s <= mTo && e >= mFrom;
                               });
                               const hasBooking = l.bookings?.some(b => {
-                                const d = getUTCMidnight(b.bookingDate);
+                                const d = getDaySortKey(b.bookingDate);
                                 return d >= mFrom && d <= mTo && b.bookingTime === selectedTimeSlot;
                               });
                               return !hasMaintenance && !hasBooking;
@@ -555,30 +646,30 @@ export default function Lawns() {
               </TableHeader>
               <TableBody>
                 {filteredLawns.map((l: Lawn) => {
-                  const mFrom = getUTCMidnight(reserveDates.from);
-                  const mTo = getUTCMidnight(reserveDates.to);
+                  const mFrom = getDaySortKey(reserveDates.from);
+                  const mTo = getDaySortKey(reserveDates.to);
 
                   const activeReservation = l.reservations?.find(r =>
-                    getUTCMidnight(r.reservedFrom) === mFrom &&
-                    getUTCMidnight(r.reservedTo) === mTo &&
+                    getDaySortKey(r.reservedFrom) === mFrom &&
+                    getDaySortKey(r.reservedTo) === mTo &&
                     r.timeSlot === selectedTimeSlot
                   );
 
                   const overlappingReservation = l.reservations?.find(r => {
-                    const rFrom = getUTCMidnight(r.reservedFrom);
-                    const rTo = getUTCMidnight(r.reservedTo);
+                    const rFrom = getDaySortKey(r.reservedFrom);
+                    const rTo = getDaySortKey(r.reservedTo);
                     return rFrom <= mTo && rTo >= mFrom && r.timeSlot === selectedTimeSlot &&
                       !(rFrom === mFrom && rTo === mTo);
                   });
 
                   const hasMaintenance = l.outOfOrders?.find(oo => {
-                    const s = getUTCMidnight(oo.startDate);
-                    const e = getUTCMidnight(oo.endDate);
+                    const s = getDaySortKey(oo.startDate);
+                    const e = getDaySortKey(oo.endDate);
                     return s <= mTo && e >= mFrom;
                   });
 
                   const hasBooking = l.bookings?.find(b => {
-                    const d = getUTCMidnight(b.bookingFrom);
+                    const d = getDaySortKey(b.bookingFrom);
                     return d >= mFrom && d <= mTo && b.timeSlot === selectedTimeSlot;
                   });
 
@@ -637,6 +728,7 @@ export default function Lawns() {
               </TableBody>
             </Table>
           </div>
+
           <DialogFooter className="gap-2">
             <div className="flex-1 text-xs text-muted-foreground flex items-center">
               {selectedLawns.length > 0 && <span>{selectedLawns.length} lawn(s) selected for action.</span>}
@@ -644,12 +736,13 @@ export default function Lawns() {
             <Button variant="outline" onClick={() => setReserveDialog(false)}>Close</Button>
             <Button
               onClick={handleBulkReserve}
-              disabled={reserveMutation.isPending || selectedLawns.length === 0 || (reserveDates.from && reserveDates.to && getUTCMidnight(reserveDates.from) >= getUTCMidnight(reserveDates.to))}
+              disabled={reserveMutation.isPending || selectedLawns.length === 0 || (reserveDates.from && reserveDates.to && getDaySortKey(reserveDates.from) > getDaySortKey(reserveDates.to))}
             >
               {reserveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Confirm Action
             </Button>
           </DialogFooter>
+
         </DialogContent>
       </Dialog>
 

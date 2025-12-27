@@ -40,6 +40,12 @@ export class HallService {
           },
         },
         bookings: true,
+        holdings: {
+          where: {
+            holdExpiry: { gt: new Date() },
+            onHold: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -48,9 +54,10 @@ export class HallService {
     return await this.prismaService.hall.findMany({
       where: { isActive: true, isBooked: false },
       include: {
-        outOfOrders: {
-          orderBy: {
-            startDate: 'asc',
+        holdings: {
+          where: {
+            holdExpiry: { gt: new Date() },
+            onHold: true,
           },
         },
       },
@@ -93,6 +100,7 @@ export class HallService {
         chargesGuests: Number(payload.chargesGuests),
         chargesMembers: Number(payload.chargesMembers),
         isActive: payload.isActive !== undefined ? (typeof payload.isActive === 'string' ? payload.isActive === 'true' : payload.isActive) : true,
+        isExclusive: payload.isExclusive !== undefined ? (typeof payload.isExclusive === 'string' ? payload.isExclusive === 'true' : payload.isExclusive) : false,
         images: uploadedImages,
         outOfOrders: {
           create: outOfOrderPeriodsData,
@@ -206,6 +214,7 @@ export class HallService {
           chargesMembers: Number(payload.chargesMembers) || 0,
           chargesGuests: Number(payload.chargesGuests) || 0,
           isActive: payload.isActive !== undefined ? (typeof payload.isActive === 'string' ? payload.isActive === 'true' : payload.isActive) : undefined,
+          isExclusive: payload.isExclusive !== undefined ? (typeof payload.isExclusive === 'string' ? payload.isExclusive === 'true' : payload.isExclusive) : undefined,
           images: finalImages,
         },
       });
@@ -264,6 +273,7 @@ export class HallService {
     timeSlot: string,
     reserveFrom?: string,
     reserveTo?: string,
+    remarks?: string,
   ) {
     // Check if any hall is currently on hold
     const heldHalls = await this.prismaService.hallHoldings.findMany({
@@ -370,11 +380,11 @@ export class HallService {
             id: { in: hallIds },
             outOfOrders: {
               some: {
-                // Check if any out-of-order period overlaps with reservation period
-                // MODIFIED: Allow checkout date to equal out-of-order start date
+                // MODIFIED: Check if any out-of-order period overlaps with reservation period
+                // Using day-only comparison to ensure inclusivity
                 AND: [
-                  { startDate: { lte: reservedTo } }, // out-of-order starts on or before reservation ends
-                  { endDate: { gte: reservedFrom } }, // out-of-order ends on or after reservation starts
+                  { startDate: { lte: toDateOnly } }, // out-of-order starts on or before reservation ends
+                  { endDate: { gte: fromDateOnly } }, // out-of-order ends on or after reservation starts
                 ],
               },
             },
@@ -382,10 +392,10 @@ export class HallService {
           include: {
             outOfOrders: {
               where: {
-                // MODIFIED: Same logic here
+                // MODIFIED: Using day-only comparison
                 AND: [
-                  { startDate: { lte: reservedTo } }, // starts on or before reservation ends
-                  { endDate: { gte: reservedFrom } }, // ends on or after reservation starts
+                  { startDate: { lte: toDateOnly } }, // starts on or before reservation ends
+                  { endDate: { gte: fromDateOnly } }, // ends on or after reservation starts
                 ],
               },
             },
@@ -399,8 +409,10 @@ export class HallService {
                 .filter((period: any) => {
                   const periodStart = new Date(period.startDate);
                   const periodEnd = new Date(period.endDate);
-                  // MODIFIED: Check for actual overlap (not just touching)
-                  return periodStart < reservedTo && periodEnd > reservedFrom;
+                  periodStart.setHours(0, 0, 0, 0);
+                  periodEnd.setHours(0, 0, 0, 0);
+                  // MODIFIED: Check for actual day-based overlap
+                  return periodStart <= toDateOnly && periodEnd >= fromDateOnly;
                 })
                 .map((period) => {
                   const startDate = new Date(period.startDate);
@@ -479,9 +491,9 @@ export class HallService {
             OR: [
               {
                 // Reservation overlaps with new reservation period
-                // MODIFIED: Allow checkout date to equal start of another reservation
-                reservedFrom: { lte: reservedTo }, // existing reservation starts on or before new reservation ends
-                reservedTo: { gte: reservedFrom }, // existing reservation ends on or after new reservation starts
+                // MODIFIED: Using day-only comparison for same time slot
+                reservedFrom: { lte: toDateOnly }, // existing reservation starts on or before new reservation ends
+                reservedTo: { gte: fromDateOnly }, // existing reservation ends on or after new reservation starts
                 timeSlot: timeSlot, // Same time slot conflict
               },
             ],
@@ -496,6 +508,37 @@ export class HallService {
           );
           throw new HttpException(
             `Reservation conflicts: ${conflicts.join(', ')}`,
+            HttpStatus.CONFLICT,
+          );
+        }
+
+        // ADDED: Check for granular hold conflicts
+        const conflictingHoldings = await prisma.hallHoldings.findMany({
+          where: {
+            hallId: { in: hallIds },
+            onHold: true,
+            holdExpiry: { gt: new Date() },
+            OR: [
+              {
+                fromDate: { lte: toDateOnly },
+                toDate: { gte: fromDateOnly },
+                timeSlot: timeSlot,
+              },
+              {
+                fromDate: null, // Legacy holds
+              }
+            ]
+          },
+          include: { hall: { select: { name: true } } },
+        });
+
+        if (conflictingHoldings.length > 0) {
+          const conflicts = conflictingHoldings.map(
+            (hold) =>
+              `Hall "${hold.hall.name}" is on hold (${hold.fromDate ? formatPakistanDate(hold.fromDate) : 'Legacy'} - ${hold.toDate ? formatPakistanDate(hold.toDate) : 'N/A'}, ${hold.timeSlot?.toLowerCase() || 'global'} slot)`,
+          );
+          throw new HttpException(
+            `Hold conflicts: ${conflicts.join(', ')}`,
             HttpStatus.CONFLICT,
           );
         }
@@ -521,10 +564,10 @@ export class HallService {
               await prisma.hallOutOfOrder.findFirst({
                 where: {
                   hallId: hall.id,
-                  // MODIFIED: Use same logic for inactive hall check
+                  // MODIFIED: Use day-only logic for inactive hall check
                   AND: [
-                    { startDate: { lte: reservedTo } },
-                    { endDate: { gte: reservedFrom } },
+                    { startDate: { lte: toDateOnly } },
+                    { endDate: { gte: fromDateOnly } },
                   ],
                 },
               });
@@ -563,6 +606,7 @@ export class HallService {
           reservedTo: reservedTo,
           reservedBy: Number(adminId),
           timeSlot: timeSlot,
+          remarks: remarks, // Added remarks
         }));
 
         const createdReservations = await prisma.hallReservation.createMany({

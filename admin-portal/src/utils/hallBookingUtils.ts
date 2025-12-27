@@ -242,6 +242,36 @@ export const getUnavailableTimeSlotsForDate = (
     }
   });
 
+  // Check holdings for this date
+  const hall = (window as any).allHalls?.find((h: any) => h.id.toString() === hallId);
+  if (hall && hall.holdings && Array.isArray(hall.holdings)) {
+    hall.holdings.forEach((hold: any) => {
+      if (!hold.onHold) return;
+      const holdExpiry = new Date(hold.holdExpiry);
+      if (holdExpiry < new Date()) return;
+
+      if (hold.fromDate && hold.toDate) {
+        const hStart = format(new Date(hold.fromDate), "yyyy-MM-dd");
+        const hEnd = format(new Date(hold.toDate), "yyyy-MM-dd");
+        if (dateString >= hStart && dateString <= hEnd) {
+          if (hold.timeSlot && !unavailableSlots.includes(hold.timeSlot)) {
+            unavailableSlots.push(hold.timeSlot);
+          } else if (!hold.timeSlot) {
+            // Global hold
+            ['MORNING', 'EVENING', 'NIGHT'].forEach(slot => {
+              if (!unavailableSlots.includes(slot)) unavailableSlots.push(slot);
+            });
+          }
+        }
+      } else {
+        // Legacy hold (global)
+        ['MORNING', 'EVENING', 'NIGHT'].forEach(slot => {
+          if (!unavailableSlots.includes(slot)) unavailableSlots.push(slot);
+        });
+      }
+    });
+  }
+
   return unavailableSlots;
 };
 
@@ -264,6 +294,11 @@ export const getAvailableTimeSlots = (
   const hallBookings = bookings.filter(
     (booking) => booking.hallId?.toString() === hallId
   );
+
+  // Check if hall is out of order for the selected date
+  if (isHallOutOfOrderForDate(hall, parseLocalDate(date))) {
+    return [];
+  }
 
   // Get unavailable time slots for the selected date
   const unavailableSlots = getUnavailableTimeSlotsForDate(
@@ -367,6 +402,37 @@ export const checkHallConflicts = (
         date: dateString,
         message: `Hall is Reserved for ${currentSlot} on ${format(targetDate, "MMM d, yyyy")}`
       };
+    }
+
+    // 4. Check Holdings
+    if (hall.holdings && Array.isArray(hall.holdings)) {
+      const isHeld = hall.holdings.some(hold => {
+        if (!hold.onHold) return false;
+        const holdExpiry = new Date(hold.holdExpiry);
+        if (holdExpiry < new Date()) return false;
+
+        if (hold.fromDate && hold.toDate) {
+          const hStart = format(new Date(hold.fromDate), "yyyy-MM-dd");
+          const hEnd = format(new Date(hold.toDate), "yyyy-MM-dd");
+
+          if (dateString >= hStart && dateString <= hEnd) {
+            return !hold.timeSlot || hold.timeSlot === currentSlot;
+          }
+          return false;
+        }
+
+        // Legacy hold
+        return true;
+      });
+
+      if (isHeld) {
+        return {
+          hasConflict: true,
+          type: 'HELD',
+          date: dateString,
+          message: `Hall is on Hold for ${currentSlot} on ${format(targetDate, "MMM d, yyyy")}`
+        };
+      }
     }
   }
 
