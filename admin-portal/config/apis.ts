@@ -1,6 +1,6 @@
 import axios from "axios";
-const base_url = "http://localhost:3000/api";
-// const base_url = "http://193.203.169.122:8080/api";
+// const base_url = "http://localhost:3000/api";
+const base_url = "http://193.203.169.122:8080/api";
 
 export const authAdmin = async (data: any): Promise<any> => {
   try {
@@ -1034,6 +1034,28 @@ export const reserveLawn = async (
     const response = await axios.patch(
       `${base_url}/lawn/reserve/lawns`,
       payload,
+      { withCredentials: true }
+    );
+    return response.data;
+  } catch (error: any) {
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "Something went wrong";
+
+    throw { message, status: error.response?.status || 500 };
+  }
+};
+
+export const getLawnLogs = async (
+  lawnId: number | string,
+  from: string,
+  to: string
+): Promise<any> => {
+  try {
+    const response = await axios.get(
+      `${base_url}/lawn/logs?lawnId=${lawnId}&from=${from}&to=${to}`,
       { withCredentials: true }
     );
     return response.data;

@@ -195,20 +195,53 @@ export function LawnBookingDetailsCard({
                 <Calendar className="h-4 w-4" />
                 Booking Details
               </h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Booking Date</Label>
-                  <Value>{formatDate(booking.bookingDate)}</Value>
+
+              {booking.bookingDetails && booking.bookingDetails.length > 0 ? (
+                <div className="border rounded-md divide-y overflow-hidden">
+                  {booking.bookingDetails.map((detail, idx) => (
+                    <div key={idx} className="p-2.5 bg-gray-50/50 flex items-center justify-between text-sm">
+                      <div className="font-medium text-gray-700">
+                        {formatDate(detail.date)}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Badge variant="outline" className="font-normal text-xs bg-white">
+                          {detail.eventType || booking.eventType}
+                        </Badge>
+                        <div className="flex items-center gap-1.5 min-w-[100px] justify-end">
+                          <span className="text-base">{getTimeSlotIcon(detail.timeSlot)}</span>
+                          <span className="text-xs text-muted-foreground">{detail.timeSlot}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="px-3 py-2 bg-gray-100 text-xs text-muted-foreground flex justify-between font-medium">
+                    <span>Total Duration: {booking.bookingDetails.length} days</span>
+                    <span>
+                      {formatDate(booking.bookingDetails[0].date)} - {formatDate(booking.bookingDetails[booking.bookingDetails.length - 1].date)}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <Label>Time Slot</Label>
-                  <Value className="flex items-center gap-2">
-                    <span>{getTimeSlotIcon(booking.bookingTime)}</span>
-                    {getTimeSlotDisplay(booking.bookingTime)}
-                  </Value>
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>Booking Date</Label>
+                    <Value>{formatDate(booking.bookingDate)}</Value>
+                  </div>
+                  <div>
+                    <Label>Time Slot</Label>
+                    <Value className="flex items-center gap-2">
+                      <span>{getTimeSlotIcon(booking.bookingTime || "NIGHT")}</span>
+                      {getTimeSlotDisplay(booking.bookingTime || "NIGHT")}
+                    </Value>
+                  </div>
+                  <div>
+                    <Label>Event Type</Label>
+                    <Value>{booking.eventType || "N/A"}</Value>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
+
 
             {/* Lawn Information */}
             <div className="space-y-2">
@@ -346,15 +379,14 @@ export function LawnBookingDetailsCard({
                 const periodStart = new Date(period.startDate);
                 const periodEnd = new Date(period.endDate);
                 const isOverlapping = eventDate >= periodStart && eventDate <= periodEnd;
-                
+
                 return (
                   <div
                     key={period.id}
-                    className={`p-3 rounded-md border text-sm ${
-                      isOverlapping
+                    className={`p-3 rounded-md border text-sm ${isOverlapping
                         ? "bg-red-50 border-red-300"
                         : "bg-gray-50 border-gray-200"
-                    }`}
+                      }`}
                   >
                     <div className="flex justify-between items-start">
                       <div>
@@ -381,11 +413,10 @@ export function LawnBookingDetailsCard({
           <div className="mt-6 pt-4 border-t">
             <div className="flex flex-wrap gap-4">
               <div className="flex items-center gap-2">
-                <div className={`h-2 w-2 rounded-full ${
-                  booking.paymentStatus === "PAID" ? "bg-green-500" :
-                  booking.paymentStatus === "HALF_PAID" ? "bg-yellow-500" :
-                  "bg-red-500"
-                }`} />
+                <div className={`h-2 w-2 rounded-full ${booking.paymentStatus === "PAID" ? "bg-green-500" :
+                    booking.paymentStatus === "HALF_PAID" ? "bg-yellow-500" :
+                      "bg-red-500"
+                  }`} />
                 <span className="text-sm">
                   <span className="font-medium">Payment:</span> {booking.paymentStatus}
                 </span>

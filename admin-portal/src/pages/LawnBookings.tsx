@@ -68,6 +68,8 @@ export interface LawnBooking {
   lawnCategoryId?: number | string
   lawnId?: string;
   bookingDate: string;
+  endDate?: string;
+  numberOfDays?: number;
   guestsCount: number;
   totalPrice: number;
   pendingAmount: number;
@@ -83,7 +85,9 @@ export interface LawnBooking {
   guestContact?: string;
   eventType?: string;
   createdAt?: string;
+  bookingDetails?: { date: string; timeSlot: string; eventType?: string }[];
 }
+
 
 interface Voucher {
   id: number;
@@ -240,6 +244,223 @@ const LawnPaymentSection = React.memo(
 
 LawnPaymentSection.displayName = "LawnPaymentSection";
 
+// Helper function to parse date string to local Date
+const parseLocalDate = (dateStr: string): Date => {
+  if (!dateStr) return new Date();
+  const pureDate = dateStr.split('T')[0];
+  const [year, month, day] = pureDate.split("-").map(Number);
+  return new Date(year, month - 1, day);
+};
+
+// Get available time slots for a lawn on a specific date
+const getAvailableLawnTimeSlots = (
+  lawnId: string,
+  dateStr: string,
+  bookings: LawnBooking[],
+  lawns: Lawn[],
+  reservations: any[]
+): string[] => {
+  const allSlots = ["MORNING", "EVENING", "NIGHT"];
+  const lawn = lawns.find(l => l.id.toString() === lawnId);
+  if (!lawn) return allSlots;
+
+  const dateStart = parseLocalDate(dateStr);
+  dateStart.setHours(0, 0, 0, 0);
+  const dateEnd = parseLocalDate(dateStr);
+  dateEnd.setHours(23, 59, 59, 999);
+
+  // Check out of order periods
+  const isOutOfOrder = lawn.isOutOfService;
+
+  if (isOutOfOrder) return [];
+
+  // Check existing bookings for this lawn on this date
+  const bookedSlots = bookings
+    .filter(b => {
+      if (b.lawn?.id?.toString() !== lawnId) return false;
+      const bookingDate = new Date(b.bookingDate);
+      bookingDate.setHours(0, 0, 0, 0);
+      return bookingDate.getTime() === dateStart.getTime();
+    })
+    .map(b => b.bookingTime || "");
+
+  // Check reservations for this lawn on this date
+  const reservedSlots = reservations
+    ?.filter((r: any) => {
+      if (r.lawnId?.toString() !== lawnId) return false;
+      const resFrom = new Date(r.reservedFrom);
+      resFrom.setHours(0, 0, 0, 0);
+      const resTo = new Date(r.reservedTo);
+      resTo.setHours(23, 59, 59, 999);
+      return dateStart >= resFrom && dateStart <= resTo;
+    })
+    .map((r: any) => r.timeSlot) || [];
+
+  const unavailableSlots = [...bookedSlots, ...reservedSlots];
+  return allSlots.filter(slot => !unavailableSlots.includes(slot));
+};
+
+// Individual time slot selector component for lawns
+const LawnIndividualTimeSlotSelector = ({
+  bookingDetails,
+  lawnId,
+  bookings,
+  lawns,
+  reservations,
+  onChange,
+  editBookingId,
+  defaultEventType
+}: {
+  bookingDetails: { date: string; timeSlot: string; eventType?: string }[];
+  lawnId: string;
+  bookings: LawnBooking[];
+  lawns: Lawn[];
+  reservations: any[];
+  onChange: (newDetails: { date: string; timeSlot: string; eventType?: string }[]) => void;
+  editBookingId?: string;
+  defaultEventType?: string;
+}) => {
+  if (!bookingDetails || bookingDetails.length === 0) return null;
+
+  // Group details by date for easier UI rendering
+  const dates = Array.from(new Set(bookingDetails.map(d => d.date))).sort();
+
+  const toggleSlot = (date: string, slot: string) => {
+    const existingIndex = bookingDetails.findIndex(d => d.date === date && d.timeSlot === slot);
+    let newDetails = [...bookingDetails];
+
+    if (existingIndex > -1) {
+      // Don't allow removing the last slot for this date - at least one must remain
+      const slotsForThisDay = bookingDetails.filter(d => d.date === date);
+      if (slotsForThisDay.length <= 1) {
+        // This is the last slot for this day, don't remove it
+        return;
+      }
+      newDetails.splice(existingIndex, 1);
+    } else {
+      // Find default event type for this day or from others
+      const sameDayDetail = bookingDetails.find(d => d.date === date);
+      newDetails.push({
+        date,
+        timeSlot: slot,
+        eventType: sameDayDetail?.eventType || defaultEventType || "wedding"
+      });
+    }
+    onChange(newDetails.sort((a, b) => a.date.localeCompare(b.date)));
+  };
+
+  const updateEventType = (date: string, slot: string, type: string) => {
+    const newDetails = bookingDetails.map(d =>
+      (d.date === date && d.timeSlot === slot) ? { ...d, eventType: type } : d
+    );
+    onChange(newDetails);
+  };
+
+  const eventTypes = [
+    { value: "mehandi", label: "Mehandi" },
+    { value: "barat", label: "Barat" },
+    { value: "walima", label: "Walima" },
+    { value: "birthday", label: "Birthday" },
+    { value: "corporate", label: "Corporate Event" },
+    { value: "wedding", label: "Wedding" },
+    { value: "other", label: "Other" },
+  ];
+
+  return (
+    <div className="col-span-full mt-2 space-y-4 p-4 bg-muted/10 rounded-xl border border-muted/30">
+      <h4 className="text-sm font-semibold flex items-center gap-2 text-foreground/80">
+        <NotepadText className="h-4 w-4 text-blue-500" />
+        Booking Schedule & Time Slots
+      </h4>
+      <div className="space-y-4">
+        {dates.map((dateStr) => {
+          const date = parseLocalDate(dateStr);
+          const dayDetails = bookingDetails.filter(d => d.date === dateStr);
+
+          const otherBookings = editBookingId
+            ? bookings.filter(b => b.id?.toString() !== editBookingId?.toString())
+            : bookings;
+
+          const availableSlots = getAvailableLawnTimeSlots(
+            lawnId,
+            dateStr,
+            otherBookings,
+            lawns,
+            reservations
+          );
+
+          return (
+            <div key={dateStr} className="p-3 bg-background rounded-lg border shadow-sm space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-bold text-foreground">
+                  {format(date, "EEEE, MMMM do")}
+                </span>
+                <div className="flex gap-1">
+                  {["MORNING", "EVENING", "NIGHT"].map(slot => {
+                    const isActive = dayDetails.some(d => d.timeSlot === slot);
+                    const isAvailable = availableSlots.includes(slot) || isActive;
+
+                    return (
+                      <Button
+                        key={slot}
+                        type="button"
+                        variant={isActive ? "default" : "outline"}
+                        size="sm"
+                        className={`text-[10px] h-7 px-2 uppercase font-bold tracking-tighter ${!isAvailable ? "opacity-40 cursor-not-allowed" : ""
+                          }`}
+                        disabled={!isAvailable}
+                        onClick={() => toggleSlot(dateStr, slot)}
+                      >
+                        {slot.charAt(0)}{slot.slice(1).toLowerCase()}
+                        {!isAvailable && " (X)"}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {dayDetails.length > 0 && (
+                <div className="space-y-2 pl-2 border-l-2 border-blue-100">
+                  {dayDetails.map((detail, idx) => (
+                    <div key={idx} className="flex items-center gap-3">
+                      <div className="flex items-center gap-1.5 min-w-[80px]">
+                        <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-bold uppercase">
+                          {detail.timeSlot}
+                        </span>
+                      </div>
+                      <Select
+                        value={detail.eventType}
+                        onValueChange={(val) => updateEventType(dateStr, detail.timeSlot, val)}
+                      >
+                        <SelectTrigger className="h-8 text-xs bg-muted/20 border-none w-[140px]">
+                          <SelectValue placeholder="Event Type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {eventTypes.map(t => (
+                            <SelectItem key={t.value} value={t.value} className="text-xs">
+                              {t.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {dayDetails.length === 0 && (
+                <p className="text-[10px] text-muted-foreground italic pl-2">
+                  No slots selected for this day. Click buttons above to add.
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 export default function LawnBookings() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editBooking, setEditBooking] = useState<LawnBooking | null>(null);
@@ -252,11 +473,11 @@ export default function LawnBookings() {
   const [paymentStatus, setPaymentStatus] = useState("UNPAID");
   const [paidAmount, setPaidAmount] = useState(0);
   const [calculatedPrice, setCalculatedPrice] = useState(0);
-  const [bookingDate, setBookingDate] = useState("");
-  const [endDate, setEndDate] = useState("");
   const [guestCount, setGuestCount] = useState(0);
-  const [eventTime, setEventTime] = useState("NIGHT");
-  const [eventType, setEventType] = useState("");
+
+  // Multi-date booking with individual time slots per date
+  const [bookingDetails, setBookingDetails] = useState<{ date: string; timeSlot: string; eventType?: string }[]>([]);
+
 
   const [detailBooking, setDetailBooking] = useState<LawnBooking | null>(null);
   const [openDetails, setOpenDetails] = useState(false)
@@ -429,17 +650,28 @@ export default function LawnBookings() {
     };
   }, []);
 
-  const calculateLawnPrice = (lawnId: string, pricing: string) => {
-    const lawn = availableLawnsData.find((l: Lawn) => l.id.toString() === lawnId);
+  const calculateLawnPrice = (lawnId: string, pricing: string, days: number = 1) => {
+    const lawn = lawnCategories
+      .flatMap((cat: LawnCategory) => cat.lawns)
+      .find((l: Lawn) => l.id.toString() === lawnId);
     if (!lawn) return 0;
-    return pricing === "member" ? parseInt(lawn.memberCharges) : parseInt(lawn.guestCharges);
+    const dailyRate = pricing === "member" ? parseInt(lawn.memberCharges) : parseInt(lawn.guestCharges);
+    return dailyRate * days;
   };
+
+  // Add a useEffect to keep calculatedPrice updated for the Create Form
+  useEffect(() => {
+    if (selectedLawn) {
+      const uniqueDays = new Set(bookingDetails.map(d => d.date)).size || 1;
+      setCalculatedPrice(calculateLawnPrice(selectedLawn, pricingType, uniqueDays));
+    } else {
+      setCalculatedPrice(0);
+    }
+  }, [selectedLawn, pricingType, bookingDetails, availableLawnsData]);
 
   // Filter available lawns based on active status and service status
   const availableLawns = useMemo(() => {
-    return availableLawnsData.filter((lawn: Lawn) =>
-      lawn.isActive && !lawn.isOutOfService && !lawn.isBooked
-    );
+    return (availableLawnsData as Lawn[]).filter((lawn: Lawn) => lawn.isActive && !lawn.isOutOfService);
   }, [availableLawnsData]);
 
   const filteredBookings = paymentFilter === "ALL"
@@ -506,13 +738,15 @@ export default function LawnBookings() {
 
   const handleLawnChange = (value: string) => {
     setSelectedLawn(value);
-    setCalculatedPrice(calculateLawnPrice(value, pricingType));
+    const uniqueDays = new Set(bookingDetails.map(d => d.date)).size || 1;
+    setCalculatedPrice(calculateLawnPrice(value, pricingType, uniqueDays));
   };
 
   const handlePricingTypeChange = (value: string) => {
     setPricingType(value);
     if (selectedLawn) {
-      setCalculatedPrice(calculateLawnPrice(selectedLawn, value));
+      const uniqueDays = new Set(bookingDetails.map(d => d.date)).size || 1;
+      setCalculatedPrice(calculateLawnPrice(selectedLawn, value, uniqueDays));
     }
   };
 
@@ -523,11 +757,8 @@ export default function LawnBookings() {
     setPaymentStatus("UNPAID");
     setPaidAmount(0);
     setPricingType("member");
-    setBookingDate("");
-    setEndDate("");
+    setBookingDetails([]);
     setGuestCount(0);
-    setEventTime("NIGHT");
-    setEventType("");
     setSelectedMember(null);
     setMemberSearch("");
     setShowMemberResults(false);
@@ -538,13 +769,25 @@ export default function LawnBookings() {
     });
   };
 
+
   const handleCreateBooking = () => {
-    if (!selectedMember || !selectedLawn || !bookingDate || !eventType || guestCount < 1) {
+    if (!selectedMember || !selectedLawn || bookingDetails.length === 0 || guestCount < 1) {
       toast({
         title: "Please fill all required fields",
-        description: "Member, lawn, booking date, event type, and guest count are required",
+        description: "Member, lawn, booking dates with time slots, and guest count are required",
         variant: "destructive",
         duration: 3000
+      });
+      return;
+    }
+
+    // Check all slots have event types
+    const missingEventType = bookingDetails.some(d => !d.eventType);
+    if (missingEventType) {
+      toast({
+        title: "Missing event types",
+        description: "Please select an event type for each time slot",
+        variant: "destructive",
       });
       return;
     }
@@ -561,12 +804,17 @@ export default function LawnBookings() {
       return;
     }
 
+    // Get first and last dates from bookingDetails
+    const sortedDates = [...new Set(bookingDetails.map(d => d.date))].sort();
+    const firstDate = sortedDates[0];
+    const lastDate = sortedDates[sortedDates.length - 1];
+
     const payload = {
       category: "Lawn",
       membershipNo: selectedMember.Membership_No,
       entityId: selectedLawn,
-      bookingDate: new Date(bookingDate).toISOString(),
-      endDate: endDate ? new Date(endDate).toISOString() : new Date(bookingDate).toISOString(),
+      bookingDate: new Date(firstDate).toISOString(),
+      endDate: new Date(lastDate).toISOString(),
       totalPrice: calculatedPrice.toString(),
       paymentStatus: paymentStatus,
       numberOfGuests: guestCount,
@@ -574,8 +822,11 @@ export default function LawnBookings() {
       pendingAmount: calculatedPrice - paidAmount,
       pricingType: pricingType,
       paymentMode: "CASH",
-      eventTime: eventTime,
-      eventType: eventType,
+      // Use first slot's time and event type for legacy support
+      eventTime: bookingDetails[0].timeSlot,
+      eventType: bookingDetails[0].eventType,
+      // Send full booking details for multi-date support
+      bookingDetails: bookingDetails,
       paidBy: guestSec.paidBy,
       guestName: guestSec.guestName,
       guestContact: guestSec.guestContact
@@ -583,6 +834,7 @@ export default function LawnBookings() {
 
     createMutation.mutate(payload);
   };
+
 
 
   const handleDeleteBooking = () => {
@@ -633,86 +885,85 @@ export default function LawnBookings() {
                 <DialogTitle>Create Lawn Booking</DialogTitle>
               </DialogHeader>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
-                {/* Member Search */}
-                <div className="md:col-span-2">
+                <div className="md:col-span-2 space-y-3">
                   <Label>Member *</Label>
-                  <div className="relative mt-2">
-                    {selectedMember ? (
-                      <div className="p-3 border border-green-200 bg-green-50 rounded-md">
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <div className="font-medium flex items-center">
-                              <User className="h-4 w-4 mr-2 text-green-600" />
-                              {selectedMember.Name}
-                            </div>
-                            <div className="text-sm text-green-600 mt-1">
-                              Membership: #{selectedMember.Membership_No}
-                              {selectedMember.Balance !== undefined && (
-                                <div className="mt-1">
-                                  <Badge
-                                    variant={selectedMember.Balance >= 0 ? "outline" : "destructive"}
-                                    className="bg-green-100 text-green-800"
-                                  >
-                                    Balance: PKR {selectedMember.Balance.toLocaleString()}
-                                  </Badge>
-                                </div>
-                              )}
-                            </div>
+
+                  {selectedMember && (
+                    <div className="p-3 border border-green-200 bg-green-50 rounded-md">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="font-medium flex items-center">
+                            <User className="h-4 w-4 mr-2 text-green-600" />
+                            {selectedMember.Name}
                           </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={handleClearMember}
-                            className="text-destructive hover:text-destructive"
-                          >
-                            Change
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="relative">
-                          <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            placeholder="Search member by name or membership number..."
-                            className="pl-10 pr-10"
-                            value={memberSearch}
-                            onChange={(e) => handleMemberSearch(e.target.value)}
-                            onFocus={handleSearchFocus}
-                          />
-                          {isSearching && (
-                            <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin text-muted-foreground" />
-                          )}
-                        </div>
-                        {showMemberResults && (
-                          <div className="absolute z-10 w-full mt-1 bg-popover border border-border rounded-md shadow-lg max-h-60 overflow-auto">
-                            {searchResults.length === 0 ? (
-                              <div className="p-4 text-center text-muted-foreground">
-                                No members found
-                              </div>
-                            ) : (
-                              searchResults.map((member) => (
-                                <div
-                                  key={member.id}
-                                  className="p-3 hover:bg-accent cursor-pointer border-b last:border-b-0"
-                                  onClick={() => handleSelectMember(member)}
+                          <div className="text-sm text-green-600 mt-1">
+                            Membership: #{selectedMember.Membership_No}
+                            {selectedMember.Balance !== undefined && (
+                              <div className="mt-1">
+                                <Badge
+                                  variant={selectedMember.Balance >= 0 ? "outline" : "destructive"}
+                                  className="bg-green-100 text-green-800"
                                 >
-                                  <div className="font-medium">{member.Name}</div>
-                                  <div className="text-sm text-muted-foreground">
-                                    Membership: #{member.Membership_No}
-                                    {member.Balance !== undefined && (
-                                      <span className={`ml-2 ${member.Balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                        Balance: PKR {member.Balance.toLocaleString()}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              ))
+                                  Balance: PKR {selectedMember.Balance.toLocaleString()}
+                                </Badge>
+                              </div>
                             )}
                           </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleClearMember}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          Clear Selection
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="relative">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder={selectedMember ? "Search to change member..." : "Search member by name or membership number..."}
+                        className="pl-10 pr-10"
+                        value={memberSearch}
+                        onChange={(e) => handleMemberSearch(e.target.value)}
+                        onFocus={handleSearchFocus}
+                      />
+                      {isSearching && (
+                        <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
+                    </div>
+
+                    {showMemberResults && (
+                      <div className="absolute z-10 w-full mt-1 bg-popover border border-border rounded-md shadow-lg max-h-60 overflow-auto">
+                        {searchResults.length === 0 ? (
+                          <div className="p-4 text-center text-muted-foreground">
+                            No members found
+                          </div>
+                        ) : (
+                          searchResults.map((member) => (
+                            <div
+                              key={member.id}
+                              className="p-3 hover:bg-accent cursor-pointer border-b last:border-b-0"
+                              onClick={() => handleSelectMember(member)}
+                            >
+                              <div className="font-medium">{member.Name}</div>
+                              <div className="text-sm text-muted-foreground">
+                                Membership: #{member.Membership_No}
+                                {member.Balance !== undefined && (
+                                  <span className={`ml-2 ${member.Balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    Balance: PKR {member.Balance.toLocaleString()}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))
                         )}
-                      </>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -774,19 +1025,85 @@ export default function LawnBookings() {
                     </Select>
                   )}
                 </div>
-                <div>
-                  <Label>Event Time *</Label>
-                  <Select value={eventTime} onValueChange={setEventTime}>
-                    <SelectTrigger className="mt-2">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="MORNING">Morning (8 AM - 12 PM)</SelectItem>
-                      <SelectItem value="EVENING">Evening (4 PM - 8 PM)</SelectItem>
-                      <SelectItem value="NIGHT">Night (8 PM - 12 AM)</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="col-span-full">
+                  <Label>Booking Dates *</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant={"outline"}
+                        className={cn(
+                          "w-full justify-start text-left font-normal mt-2",
+                          bookingDetails.length === 0 && "text-muted-foreground"
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {bookingDetails.length > 0 ? (
+                          (() => {
+                            const dates = [...new Set(bookingDetails.map(d => d.date))].sort();
+                            const firstDate = dates[0];
+                            const lastDate = dates[dates.length - 1];
+                            return firstDate === lastDate
+                              ? format(parseLocalDate(firstDate), "LLL dd, y")
+                              : `${format(parseLocalDate(firstDate), "LLL dd, y")} - ${format(parseLocalDate(lastDate), "LLL dd, y")}`;
+                          })()
+                        ) : (
+                          <span>Pick booking dates</span>
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="range"
+                        selected={
+                          bookingDetails.length > 0
+                            ? {
+                              from: parseLocalDate([...new Set(bookingDetails.map(d => d.date))].sort()[0]),
+                              to: parseLocalDate([...new Set(bookingDetails.map(d => d.date))].sort().pop()!),
+                            }
+                            : undefined
+                        }
+                        onSelect={(range) => {
+                          if (range?.from) {
+                            const newDetails: { date: string; timeSlot: string; eventType?: string }[] = [];
+                            let currentDate = new Date(range.from);
+                            const endDate = range.to || range.from;
+
+                            while (currentDate <= endDate) {
+                              const dateStr = format(currentDate, "yyyy-MM-dd");
+                              newDetails.push({
+                                date: dateStr,
+                                timeSlot: "NIGHT",
+                                eventType: "wedding"
+                              });
+                              currentDate.setDate(currentDate.getDate() + 1);
+                            }
+                            setBookingDetails(newDetails);
+                          } else {
+                            setBookingDetails([]);
+                          }
+                        }}
+                        disabled={(date) =>
+                          date < new Date(new Date().setHours(0, 0, 0, 0))
+                        }
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </div>
+
+                {/* Time slot selector for each date */}
+                {selectedLawn && bookingDetails.length > 0 && (
+                  <LawnIndividualTimeSlotSelector
+                    bookingDetails={bookingDetails}
+                    lawnId={selectedLawn}
+                    bookings={lawnBookings}
+                    lawns={availableLawns}
+                    reservations={[]} // TODO: Add reservations data if available
+                    onChange={setBookingDetails}
+                    defaultEventType="wedding"
+                  />
+                )}
+
                 <div>
                   <Label>Pricing Type</Label>
                   <Select value={pricingType} onValueChange={handlePricingTypeChange}>
@@ -799,73 +1116,7 @@ export default function LawnBookings() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <Label>Booking Date *</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant={"outline"}
-                        className={cn(
-                          "w-full justify-start text-left font-normal mt-2",
-                          !bookingDate && "text-muted-foreground"
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {bookingDate ? (
-                          endDate ? (
-                            <>
-                              {format(new Date(bookingDate), "LLL dd, y")} -{" "}
-                              {format(new Date(endDate), "LLL dd, y")}
-                            </>
-                          ) : (
-                            format(new Date(bookingDate), "LLL dd, y")
-                          )
-                        ) : (
-                          <span>Pick a date</span>
-                        )}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="range"
-                        selected={{
-                          from: bookingDate ? new Date(bookingDate) : undefined,
-                          to: endDate ? new Date(endDate) : undefined,
-                        }}
-                        onSelect={(range) => {
-                          if (range?.from) {
-                            setBookingDate(format(range.from, "yyyy-MM-dd"));
-                            setEndDate(range.to ? format(range.to, "yyyy-MM-dd") : "");
-                          } else {
-                            setBookingDate("");
-                            setEndDate("");
-                          }
-                        }}
-                        disabled={(date) =>
-                          date < new Date(new Date().setHours(0, 0, 0, 0))
-                        }
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-                <div>
-                  <Label>Event Type *</Label>
-                  <Select value={eventType} onValueChange={setEventType}>
-                    <SelectTrigger className="mt-2">
-                      <SelectValue placeholder="Select event type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="mehandi">Mehandi</SelectItem>
-                      <SelectItem value="barat">Barat</SelectItem>
-                      <SelectItem value="walima">Walima</SelectItem>
-                      <SelectItem value="birthday">Birthday</SelectItem>
-                      <SelectItem value="corporate">Corporate Event</SelectItem>
-                      <SelectItem value="wedding">Wedding</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+
                 <div>
                   <Label>Guest Count *</Label>
                   <Input
@@ -879,6 +1130,7 @@ export default function LawnBookings() {
                   />
                 </div>
                 {pricingType == "guest" && <div className="p-4 rounded-xl border bg-white shadow-sm col-span-full">
+
 
                   <h3 className="text-lg font-semibold mb-4">Guest Information</h3>
 
@@ -1031,14 +1283,38 @@ export default function LawnBookings() {
                       )}
                     </TableCell>
                     <TableCell>{booking.lawn?.description}</TableCell>
-                    <TableCell>{new Date(booking.bookingDate).toLocaleDateString()}</TableCell>
-                    <TableCell>{booking.eventType}</TableCell>
                     <TableCell>
-                      {getTimeSlotBadge(booking.bookingTime || "NIGHT")}
+                      {booking.numberOfDays && booking.numberOfDays > 1 && booking.endDate
+                        ? (
+                          <div className="flex flex-col">
+                            <span>
+                              {format(new Date(booking.bookingDate), "MMM dd")} - {format(new Date(booking.endDate), "MMM dd, yyyy")}
+                            </span>
+                            <span className="text-xs text-muted-foreground">{booking.numberOfDays} days</span>
+                          </div>
+                        )
+                        : new Date(booking.bookingDate).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>
+                      {booking.bookingDetails && booking.bookingDetails.length > 0
+                        ? Array.from(new Set(booking.bookingDetails.map(d => d.eventType))).join(", ")
+                        : booking.eventType}
+                    </TableCell>
+                    <TableCell>
+                      {booking.bookingDetails && booking.bookingDetails.length > 0
+                        ? (
+                          <div className="flex flex-col gap-1">
+                            {Array.from(new Set(booking.bookingDetails.map(d => d.timeSlot))).map(slot => (
+                              <span key={slot}>{getTimeSlotBadge(slot)}</span>
+                            ))}
+                          </div>
+                        )
+                        : getTimeSlotBadge(booking.bookingTime || "NIGHT")}
                     </TableCell>
                     <TableCell>{booking.guestsCount}</TableCell>
                     <TableCell>PKR {booking.totalPrice.toLocaleString()}</TableCell>
                     <TableCell>{getPaymentBadge(booking.paymentStatus)}</TableCell>
+
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Button variant="ghost"
@@ -1056,12 +1332,41 @@ export default function LawnBookings() {
                             .flatMap((cat: LawnCategory) => cat.lawns)
                             .find((l: Lawn) => l.id.toString() === booking.lawn?.id);
 
+                          // Initialize bookingDetails if missing (for legacy bookings)
+                          let details = booking.bookingDetails || [];
+                          if (details.length === 0) {
+                            const days = booking.numberOfDays || 1;
+                            const start = new Date(booking.bookingDate);
+
+                            for (let i = 0; i < days; i++) {
+                              const d = new Date(start);
+                              d.setDate(d.getDate() + i);
+                              details.push({
+                                date: format(d, "yyyy-MM-dd"),
+                                timeSlot: booking.bookingTime || "NIGHT",
+                                eventType: booking.eventType || "wedding"
+                              });
+                            }
+                          }
+
+                          // Calculate endDate if missing (for legacy bookings)
+                          let endDate = booking.endDate;
+                          if (!endDate && booking.numberOfDays && booking.numberOfDays > 1) {
+                            const start = new Date(booking.bookingDate);
+                            const end = new Date(start);
+                            end.setDate(end.getDate() + (booking.numberOfDays - 1));
+                            endDate = format(end, "yyyy-MM-dd");
+                          }
+
                           setEditBooking({
                             ...booking,
+                            bookingDetails: details,
+                            endDate: endDate,
                             lawn: {
                               ...booking.lawn,
                             }
                           });
+
                         }} title="Edit Booking">
                           <Edit className="h-4 w-4" />
                         </Button>
@@ -1230,54 +1535,107 @@ export default function LawnBookings() {
               </Select>
             </div>
 
-            <div>
-              <Label>Booking Date</Label>
+            <div className="col-span-full">
+              <Label>Booking Dates</Label>
               <UnifiedDatePicker
-                value={editBooking?.bookingDate ? new Date(editBooking.bookingDate) : undefined}
-                onChange={(date) => {
-                  const dateStr = date ? format(date, "yyyy-MM-dd") : "";
-                  setEditBooking(prev => prev ? { ...prev, bookingDate: dateStr } : null);
+                value={editBooking?.bookingDate ? parseLocalDate(editBooking.bookingDate) : undefined}
+                endDate={editBooking?.endDate ? parseLocalDate(editBooking.endDate) : undefined}
+                selectionMode="range"
+                onChange={(date, type) => {
+                  setEditBooking(prev => {
+                    if (!prev) return null;
+                    const dateStr = date ? format(date, "yyyy-MM-dd") : "";
+
+                    const startDate = type === "start" ? (date || new Date()) : parseLocalDate(prev.bookingDate);
+                    const endDate = type === "end" ? (date || startDate) : (type === "start" ? startDate : parseLocalDate(prev.endDate || prev.bookingDate));
+
+                    const startDateStr = format(startDate, "yyyy-MM-dd");
+                    const endDateStr = format(endDate, "yyyy-MM-dd");
+
+                    // Generate initial booking details for the range
+                    const newDetails: { date: string; timeSlot: string; eventType?: string }[] = [];
+                    let scanDate = new Date(startDate);
+                    const lastDate = new Date(endDate);
+
+                    // Safety break
+                    let count = 0;
+                    while (scanDate <= lastDate && count < 100) {
+                      count++;
+                      const sDateStr = format(scanDate, "yyyy-MM-dd");
+                      const existing = prev.bookingDetails?.find(d => d.date === sDateStr);
+                      if (existing) {
+                        newDetails.push(existing);
+                      } else {
+                        newDetails.push({
+                          date: sDateStr,
+                          timeSlot: "NIGHT",
+                          eventType: prev.eventType || "wedding"
+                        });
+                      }
+                      scanDate.setDate(scanDate.getDate() + 1);
+                    }
+
+                    // Calculate new price based on days
+                    const lawn = lawnCategories
+                      .flatMap((cat: LawnCategory) => cat.lawns)
+                      .find((l: Lawn) => l.id.toString() === prev.lawn?.id.toString());
+
+                    let newTotalPrice = prev.totalPrice;
+                    let newPaidAmount = prev.paidAmount || 0;
+                    let newPendingAmount = prev.pendingAmount || 0;
+                    let newPaymentStatus = prev.paymentStatus;
+
+                    if (lawn) {
+                      const dailyRate = prev.pricingType === "member"
+                        ? parseInt(lawn.memberCharges)
+                        : parseInt(lawn.guestCharges);
+
+                      newTotalPrice = dailyRate * newDetails.length;
+
+                      // Payment logic adjustment (similar to pricing type change)
+                      if (newTotalPrice < newPaidAmount) {
+                        newPaymentStatus = "PAID";
+                        newPaidAmount = newTotalPrice;
+                        newPendingAmount = 0;
+                      } else {
+                        if (newPaymentStatus === "PAID" && newTotalPrice > newPaidAmount) {
+                          newPaymentStatus = "HALF_PAID";
+                        }
+                        newPendingAmount = newTotalPrice - newPaidAmount;
+                      }
+                    }
+
+                    return {
+                      ...prev,
+                      bookingDate: startDateStr,
+                      endDate: endDateStr,
+                      bookingDetails: newDetails,
+                      numberOfDays: newDetails.length,
+                      totalPrice: newTotalPrice,
+                      paidAmount: newPaidAmount,
+                      pendingAmount: newPendingAmount,
+                      paymentStatus: newPaymentStatus
+                    };
+                  });
                 }}
-                placeholder="Select booking date"
+                placeholder="Select booking dates"
                 minDate={new Date()}
               />
             </div>
-            <div>
-              <Label>Event Type</Label>
-              <Select
-                value={editBooking?.eventType || ""}
-                onValueChange={(val) => setEditBooking(prev => prev ? { ...prev, eventType: val } : null)}
-              >
-                <SelectTrigger className="mt-2">
-                  <SelectValue placeholder="Select event type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="mehandi">Mehandi</SelectItem>
-                  <SelectItem value="barat">Barat</SelectItem>
-                  <SelectItem value="walima">Walima</SelectItem>
-                  <SelectItem value="birthday">Birthday</SelectItem>
-                  <SelectItem value="corporate">Corporate Event</SelectItem>
-                  <SelectItem value="wedding">Wedding</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Event Time</Label>
-              <Select
-                value={editBooking?.bookingTime || "NIGHT"}
-                onValueChange={(value) => setEditBooking(prev => prev ? { ...prev, bookingTime: value } : null)}
-              >
-                <SelectTrigger className="mt-2">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="MORNING">Morning (8 AM - 12 PM)</SelectItem>
-                  <SelectItem value="EVENING">Evening (4 PM - 8 PM)</SelectItem>
-                  <SelectItem value="NIGHT">Night (8 PM - 12 AM)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+
+            {editBooking && editBooking.lawn?.id && editBooking.bookingDetails && (
+              <LawnIndividualTimeSlotSelector
+                bookingDetails={editBooking.bookingDetails}
+                lawnId={editBooking.lawn.id.toString()}
+                bookings={lawnBookings}
+                lawns={availableLawns}
+                reservations={[]}
+                editBookingId={editBooking.id.toString()}
+                onChange={(newDetails) => setEditBooking(prev => prev ? { ...prev, bookingDetails: newDetails } : null)}
+                defaultEventType={editBooking.eventType}
+              />
+            )}
+
             <div>
               <Label>Guest Count</Label>
               <Input
@@ -1308,10 +1666,12 @@ export default function LawnBookings() {
                     return;
                   }
 
-                  // Calculate new price
-                  const newPrice = value === "member"
+                  const dailyRate = value === "member"
                     ? parseInt(lawn.memberCharges)
                     : parseInt(lawn.guestCharges);
+
+                  const uniqueDays = new Set((editBooking.bookingDetails || []).map(d => d.date)).size || 1;
+                  const newPrice = dailyRate * uniqueDays;
 
                   let newPaidAmount = oldPaid;
                   let newPendingAmount = newPrice - oldPaid;
@@ -1482,16 +1842,18 @@ export default function LawnBookings() {
                 if (!editBooking) return;
 
                 // VALIDATION
-                if (!editBooking.eventType) {
-                  toast({ title: "Event type is required", variant: "destructive" });
+                if (!editBooking.bookingDetails || editBooking.bookingDetails.length === 0) {
+                  toast({ title: "Booking dates are required", variant: "destructive" });
                   return;
                 }
+                const missingEvent = editBooking.bookingDetails.some(d => !d.eventType);
+                if (missingEvent) {
+                  toast({ title: "Event type is required for all slots", variant: "destructive" });
+                  return;
+                }
+
                 if (!editBooking.guestsCount || editBooking.guestsCount < 1) {
                   toast({ title: "Guest count must be at least 1", variant: "destructive" });
-                  return;
-                }
-                if (!editBooking.bookingDate) {
-                  toast({ title: "Booking date is required", variant: "destructive" });
                   return;
                 }
 
@@ -1501,12 +1863,15 @@ export default function LawnBookings() {
                   return;
                 }
 
+                const sortedDates = [...new Set(editBooking.bookingDetails.map(d => d.date))].sort();
+
                 const payload = {
                   id: editBooking.id.toString(),
                   category: "Lawn",
                   membershipNo: membershipNo,
                   entityId: editBooking.lawn?.id?.toString() || editBooking.entityId || "",
-                  bookingDate: editBooking.bookingDate,
+                  bookingDate: new Date(sortedDates[0]).toISOString(),
+                  endDate: new Date(sortedDates[sortedDates.length - 1]).toISOString(),
                   totalPrice: editBooking.totalPrice.toString(),
                   paymentStatus: editBooking.paymentStatus,
                   numberOfGuests: editBooking.guestsCount,
@@ -1514,12 +1879,14 @@ export default function LawnBookings() {
                   pendingAmount: editBooking.pendingAmount || 0,
                   pricingType: editBooking.pricingType || "member",
                   paymentMode: "CASH",
-                  eventTime: editBooking.bookingTime || "NIGHT",
-                  eventType: editBooking.eventType,
+                  eventTime: editBooking.bookingDetails[0].timeSlot, // Legacy support
+                  eventType: editBooking.bookingDetails[0].eventType, // Legacy support
+                  bookingDetails: editBooking.bookingDetails,
                   paidBy: editBooking.paidBy || "MEMBER",
                   guestName: editBooking.guestName,
                   guestContact: editBooking.guestContact?.toString(),
                 };
+
 
                 updateMutation.mutate(payload);
               }}
@@ -1630,7 +1997,7 @@ export default function LawnBookings() {
                     {voucher.remarks && (
                       <div className="mt-3 p-2 bg-white border rounded text-sm">
                         <div className="font-medium">Remarks</div>
-                        <div className="text-muted-foreground">
+                        <div className="text-muted-foreground whitespace-pre-line">
                           {voucher.remarks}
                         </div>
                       </div>

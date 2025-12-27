@@ -165,6 +165,7 @@ export class LawnController {
       reserveFrom?: string;
       reserveTo?: string;
       timeSlot: string;
+      remarks?: string;
     },
   ) {
     return await this.lawn.reserveLawns(
@@ -172,8 +173,17 @@ export class LawnController {
       payload.reserve,
       req.user.id,
       payload.timeSlot,
-      payload.reserveFrom,
       payload.reserveTo,
+      payload.remarks,
     );
+  }
+  @UseGuards(JwtAccGuard)
+  @Get('logs')
+  async getLawnLogs(
+    @Query('lawnId') lawnId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ) {
+    return this.lawn.getLawnLogs(lawnId, from, to);
   }
 }

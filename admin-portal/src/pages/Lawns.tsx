@@ -23,7 +23,20 @@ import {
   Sunset,
   Clock,
   NotepadText,
+  Eye,
+  Info,
+  Users,
+  DollarSign,
+  Settings,
+  DoorOpen,
 } from "lucide-react";
+import { DateRange } from "react-day-picker";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import {
   Popover,
   PopoverContent,
@@ -62,6 +75,7 @@ import {
   deleteLawn,
   getLawnCategories,
   reserveLawn,
+  getLawnLogs,
 } from "../../config/apis";
 
 interface LawnOutOfOrder {
@@ -82,6 +96,7 @@ interface LawnReservation {
   reservedFrom: string;
   reservedTo: string;
   timeSlot: string;
+  remarks?: string;
   admin: {
     id: number;
     name: string;
@@ -94,13 +109,12 @@ interface LawnReservation {
 interface LawnBooking {
   id: number;
   lawnId: number;
-  bookingFrom: string;
-  bookingTo: string;
-  timeSlot: string;
-  admin: {
-    id: number;
-    name: string;
-    email: string;
+  bookingDate: string;
+  endDate: string;
+  bookingTime: string;
+  member: {
+    Name: string;
+    Membership_No: string;
   };
   createdAt: string;
   updatedAt: string;
@@ -108,16 +122,17 @@ interface LawnBooking {
 
 interface Lawn {
   id: number;
-  description: string;
   lawnCategoryId: number;
-  lawnCategory: LawnCategory;
+  description: string;
   minGuests: number;
   maxGuests: number;
-  memberCharges: string;
-  guestCharges: string;
+  memberCharges: string | number;
+  guestCharges: string | number;
   isActive: boolean;
   isOutOfService: boolean;
   outOfOrders: LawnOutOfOrder[];
+  lawnCategory: LawnCategory;
+  holdings?: any[];
   reservations: LawnReservation[];
   bookings: LawnBooking[];
 }
@@ -152,8 +167,15 @@ const initialOutOfOrderState: LawnOutOfOrder = {
   endDate: "",
 };
 
-const getDaySortKey = (dateString: string) => {
-  return format(new Date(dateString), "yyyy-MM-dd");
+const getDaySortKey = (dateString: any) => {
+  if (!dateString) return "1970-01-01";
+  try {
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return "1970-01-01";
+    return format(d, "yyyy-MM-dd");
+  } catch (e) {
+    return "1970-01-01";
+  }
 };
 
 const formatDate = (dateString: string) => {
@@ -168,6 +190,63 @@ const StatusIndicator = ({ isActive }: { isActive: boolean }) => {
   );
 };
 
+const isCurrentlyHeld = (lawn: Lawn) => {
+  if (!lawn.holdings || lawn.holdings.length === 0) return false;
+  const now = new Date();
+  return lawn.holdings.some(h => {
+    if (!h.onHold) return false;
+    const expiry = new Date(h.holdExpiry);
+    if (expiry < now) return false;
+
+    // Granular hold check
+    if (h.fromDate && h.toDate) {
+      const start = new Date(h.fromDate);
+      const end = new Date(h.toDate);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+      if (now >= start && now <= end) return true;
+    } else {
+      // Legacy hold (only expiry matters)
+      return true;
+    }
+    return false;
+  });
+};
+
+const getLawnStatus = (lawn: Lawn) => {
+  const now = new Date();
+  const today = new Date().setHours(0, 0, 0, 0);
+
+  const currentOut = lawn.outOfOrders?.find(p => {
+    const s = new Date(p.startDate).setHours(0, 0, 0, 0);
+    const e = new Date(p.endDate).setHours(0, 0, 0, 0);
+    return today >= s && today <= e;
+  });
+  if (currentOut) return "Maintenance";
+
+  const currentBooking = lawn.bookings?.find(b => {
+    const s = new Date(b.bookingDate).setHours(0, 0, 0, 0);
+    const e = new Date(b.endDate).setHours(0, 0, 0, 0);
+    return today >= s && today <= e;
+  });
+  if (currentBooking) return "Booked";
+
+  if (isCurrentlyHeld(lawn)) return "On Hold";
+  if (!lawn.isActive) return "Inactive";
+  return "Available";
+};
+
+const getLawnStatusVariant = (status: string): "default" | "secondary" | "destructive" | "outline" | "success" | "warning" => {
+  switch (status) {
+    case "Available": return "success" as any;
+    case "Booked": return "default";
+    case "Maintenance": return "destructive";
+    case "On Hold": return "warning" as any;
+    case "Inactive": return "outline";
+    default: return "outline";
+  }
+};
+
 const MaintenanceIndicator = ({
   outOfOrders,
   isOutOfService,
@@ -176,7 +255,7 @@ const MaintenanceIndicator = ({
   isOutOfService: boolean;
 }) => {
   const now = new Date();
-  now.setUTCHours(0, 0, 0, 0);
+  now.setHours(0, 0, 0, 0);
   const today = now.getTime();
 
   // All current or future periods
@@ -184,40 +263,43 @@ const MaintenanceIndicator = ({
     ?.filter((p) => new Date(p.endDate).getTime() >= today)
     .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()) || [];
 
-  const displayCount = 3;
+  const displayCount = 2;
   const sliced = activeAndFuture.slice(0, displayCount);
   const remaining = activeAndFuture.length - displayCount;
 
   if (activeAndFuture.length === 0 && !isOutOfService) {
-    return <span className="text-[10px] text-muted-foreground italic">No maintenance</span>;
+    return null;
   }
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1 mt-2">
       {isOutOfService && !activeAndFuture.some(p => new Date(p.startDate).getTime() <= today && new Date(p.endDate).getTime() >= today) && (
         <Badge variant="destructive" className="w-fit text-[10px] py-0 px-1.5 h-4">Manual Out of Service</Badge>
       )}
       {sliced.map((p, idx) => {
         const isCurrent = new Date(p.startDate).getTime() <= today && new Date(p.endDate).getTime() >= today;
         return (
-          <div key={idx} className="flex flex-col gap-0.5">
+          <div key={idx} className="flex flex-col gap-0.5 bg-orange-50 p-1.5 rounded border border-orange-100">
             <div className="flex items-center gap-1">
               <Badge
                 variant={isCurrent ? "destructive" : "secondary"}
-                className={`text-[9px] py-0 px-1 h-3.5 ${!isCurrent ? "bg-orange-50 text-orange-600 border-orange-100" : ""}`}
+                className={`text-[9px] py-0 px-1 h-3.5 ${!isCurrent ? "bg-orange-100 text-orange-700 hover:bg-orange-100 border-orange-200" : ""}`}
               >
-                {isCurrent ? "Currently In Maintenance" : "Scheduled"}
+                {isCurrent ? "Maintenance" : "Scheduled"}
               </Badge>
             </div>
-            <span className={`text-[10px] font-medium leading-tight ${isCurrent ? "text-red-600" : "text-muted-foreground"}`}>
-              {p.reason} ({formatDate(p.startDate)} - {formatDate(p.endDate)})
+            <span className={`text-[10px] font-medium leading-tight ${isCurrent ? "text-red-700" : "text-orange-700"}`}>
+              {p.reason}
+            </span>
+            <span className="text-[9px] text-muted-foreground italic">
+              ({new Date(p.startDate).toLocaleDateString()} - {new Date(p.endDate).toLocaleDateString()})
             </span>
           </div>
         );
       })}
       {remaining > 0 && (
         <span className="text-[9px] text-muted-foreground font-medium pl-1">
-          + {remaining} more maintenance periods
+          + {remaining} more periods
         </span>
       )}
     </div>
@@ -331,6 +413,378 @@ const OutOfOrderPeriods = ({
   );
 };
 
+const LawnDetailDialog = ({
+  lawn,
+  onClose,
+  logs,
+  loading,
+  dateRange,
+  onDateRangeChange,
+  activeTab,
+  onTabChange,
+}: {
+  lawn: Lawn | null;
+  onClose: () => void;
+  logs: any;
+  loading: boolean;
+  dateRange: DateRange | undefined;
+  onDateRangeChange: (range: DateRange | undefined) => void;
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+}) => {
+  if (!lawn) return null;
+
+  return (
+    <Dialog open={!!lawn} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <div className="flex items-center justify-between pr-8">
+            <div>
+              <DialogTitle className="text-2xl font-bold">
+                {lawn.lawnCategory.category}
+              </DialogTitle>
+              <div className="flex items-center gap-2 mt-1">
+                <Badge variant="outline" className="font-normal border-primary/20 bg-primary/5 text-primary">
+                  Lawn
+                </Badge>
+                <span className="text-sm text-muted-foreground">
+                  ID: {lawn.id}
+                </span>
+              </div>
+              <span className="text-xs text-muted-foreground">{lawn.description}</span>
+            </div>
+            <Badge
+              variant={lawn.isActive ? "default" : "secondary"}
+              className={cn(
+                "px-3 py-1",
+                lawn.isActive
+                  ? "bg-green-100 text-green-700 hover:bg-green-100"
+                  : "bg-red-100 text-red-700 hover:bg-red-100"
+              )}
+            >
+              {lawn.isActive ? "Active" : "Inactive"}
+            </Badge>
+          </div>
+        </DialogHeader>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 py-2">
+          <Card className="p-3 bg-muted/20 border border-border/50 shadow-none transition-all hover:bg-muted/30 text-left">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-slate-100 rounded-md">
+                <Users className="h-4 w-4 text-slate-600" />
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-tight">
+                  Member Price
+                </p>
+                <p className="text-sm font-bold text-slate-700">
+                  Rs. {Number(lawn.memberCharges || 0).toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </Card>
+          <Card className="p-3 bg-muted/20 border border-border/50 shadow-none transition-all hover:bg-muted/30 text-left">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-slate-100 rounded-md">
+                <Users className="h-4 w-4 text-slate-600" />
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-tight">
+                  Guest Price
+                </p>
+                <p className="text-sm font-bold text-slate-700">
+                  Rs. {Number(lawn.guestCharges || 0).toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </Card>
+          <Card className="p-3 bg-muted/20 border border-border/50 shadow-none transition-all hover:bg-muted/30 text-left overflow-hidden">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-slate-100 rounded-md shrink-0">
+                <Info className="h-4 w-4 text-slate-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-tight whitespace-nowrap">
+                  Description
+                </p>
+                <p className="text-xs truncate text-slate-600">
+                  {lawn.description || "No description provided."}
+                </p>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        {/* Small Overview Totals */}
+        <div className="flex items-center gap-4 py-2 border-y border-border/40">
+          <div className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
+            <span className="text-[11px] font-medium text-slate-500">
+              Reservations: <span className="text-slate-900">{logs?.reservations?.length || 0}</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 border-l pl-4 border-border/40">
+            <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
+            <span className="text-[11px] font-medium text-slate-500">
+              Bookings: <span className="text-slate-900">{logs?.bookings?.length || 0}</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 border-l pl-4 border-border/40">
+            <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
+            <span className="text-[11px] font-medium text-slate-500">
+              Maintenance: <span className="text-slate-900">{logs?.outOfOrders?.length || 0}</span>
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-6 pt-2">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <h3 className="text-sm font-semibold flex items-center gap-2 text-slate-700">
+              Activity Logs
+              {loading && <div className="h-3 w-3 animate-spin rounded-full border border-slate-400 border-t-transparent" />}
+            </h3>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground whitespace-nowrap">Filter Logs:</span>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={cn(
+                      "justify-start text-left font-normal h-9",
+                      !dateRange && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {dateRange?.from ? (
+                      dateRange.to ? (
+                        <>
+                          {format(dateRange.from, "LLL dd, y")} -{" "}
+                          {format(dateRange.to, "LLL dd, y")}
+                        </>
+                      ) : (
+                        format(dateRange.from, "LLL dd, y")
+                      )
+                    ) : (
+                      <span>Pick a date range</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end">
+                  <Calendar
+                    initialFocus
+                    mode="range"
+                    defaultMonth={dateRange?.from}
+                    selected={dateRange}
+                    onSelect={onDateRangeChange}
+                    numberOfMonths={2}
+                    classNames={{
+                      day_today: "border-2 border-primary text-primary bg-transparent font-bold",
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+
+          <Tabs
+            value={activeTab}
+            onValueChange={onTabChange}
+            className="w-full"
+          >
+            <TabsList className="grid w-full grid-cols-3 h-9 p-1 bg-slate-100 rounded-md">
+              <TabsTrigger value="reservations" className="text-[11px] rounded-sm data-[state=active]:bg-background data-[state=active]:shadow-none data-[state=active]:border border-slate-200">
+                Reservations ({logs?.reservations?.length || 0})
+              </TabsTrigger>
+              <TabsTrigger value="bookings" className="text-[11px] rounded-sm data-[state=active]:bg-background data-[state=active]:shadow-none data-[state=active]:border border-slate-200">
+                Bookings ({logs?.bookings?.length || 0})
+              </TabsTrigger>
+              <TabsTrigger value="maintenance" className="text-[11px] rounded-sm data-[state=active]:bg-background data-[state=active]:shadow-none data-[state=active]:border border-slate-200">
+                Maintenance ({logs?.outOfOrders?.length || 0})
+              </TabsTrigger>
+            </TabsList>
+
+            <div className="mt-4 min-h-[300px]">
+              {loading ? (
+                <div className="flex flex-col items-center justify-center h-[300px] gap-2 text-slate-400">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-300"></div>
+                  <p className="text-[11px] font-medium">Loading history...</p>
+                </div>
+              ) : (
+                <>
+                  <TabsContent value="reservations" className="mt-0 outline-none">
+                    <div className="border border-slate-100 rounded-lg overflow-hidden bg-white">
+                      <Table>
+                        <TableHeader className="bg-slate-50/50">
+                          <TableRow className="hover:bg-transparent border-slate-100">
+                            <TableHead className="text-[11px] h-9 text-slate-500">Reserved From</TableHead>
+                            <TableHead className="text-[11px] h-9 text-slate-500">Reserved To</TableHead>
+                            <TableHead className="text-[11px] h-9 text-slate-500">Time Slot</TableHead>
+                            <TableHead className="text-[11px] h-9 text-slate-500">Reserved By</TableHead>
+                            <TableHead className="text-[11px] h-9 text-slate-500 text-right">Remarks</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {logs?.reservations?.length ? (
+                            logs.reservations.map((res: any) => (
+                              <TableRow key={res.id} className="hover:bg-slate-50/50 transition-colors border-slate-50">
+                                <TableCell className="text-xs py-2 text-slate-600">
+                                  {format(new Date(res.reservedFrom), "LLL dd, y")}
+                                </TableCell>
+                                <TableCell className="text-xs py-2 text-slate-600">
+                                  {format(new Date(res.reservedTo), "LLL dd, y")}
+                                </TableCell>
+                                <TableCell className="text-xs py-2 text-slate-600">
+                                  {res.timeSlot}
+                                </TableCell>
+                                <TableCell className="text-xs py-2">
+                                  <div className="flex items-center gap-2 text-slate-600">
+                                    <div className="h-5 w-5 rounded-full bg-slate-100 flex items-center justify-center text-[9px] font-bold text-slate-500">
+                                      {res.admin?.name?.substring(0, 1).toUpperCase()}
+                                    </div>
+                                    {res.admin?.name}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-xs py-2 text-slate-500 text-right italic font-normal">
+                                  {res.remarks || "—"}
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          ) : (
+                            <TableRow>
+                              <TableCell
+                                colSpan={5}
+                                className="text-center py-10 text-slate-400"
+                              >
+                                <div className="flex flex-col items-center gap-1.5">
+                                  <CalendarIcon className="h-6 w-6 opacity-10" />
+                                  <p className="text-[11px]">No reservations found.</p>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="bookings" className="mt-0 outline-none">
+                    <div className="border border-slate-100 rounded-lg overflow-hidden bg-white">
+                      <Table>
+                        <TableHeader className="bg-slate-50/50">
+                          <TableRow className="hover:bg-transparent border-slate-100">
+                            <TableHead className="text-[11px] h-9 text-slate-500">Member</TableHead>
+                            <TableHead className="text-[11px] h-9 text-slate-500">Date</TableHead>
+                            <TableHead className="text-[11px] h-9 text-slate-500">Slot</TableHead>
+                            <TableHead className="text-[11px] h-9 text-slate-500">Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {logs?.bookings?.length ? (
+                            logs.bookings.map((book: any) => (
+                              <TableRow key={book.id} className="hover:bg-slate-50/50 transition-colors border-slate-50">
+                                <TableCell className="py-2">
+                                  <div>
+                                    <p className="font-semibold text-xs text-slate-700">
+                                      {book.member?.Name || "Guest"}
+                                    </p>
+                                    <p className="text-[10px] text-slate-400">
+                                      {book.member?.Membership_No || "-"}
+                                    </p>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-xs py-2 text-slate-600">
+                                  {format(new Date(book.bookingDate), "LLL dd, y")}
+                                  {book.endDate && book.endDate !== book.bookingDate && ` - ${format(new Date(book.endDate), "LLL dd, y")}`}
+                                </TableCell>
+                                <TableCell className="text-xs py-2 text-slate-600 font-semibold">
+                                  {book.bookingTime}
+                                </TableCell>
+                                <TableCell className="py-2">
+                                  <Badge
+                                    variant="secondary"
+                                    className={cn(
+                                      "capitalize text-[9px] font-semibold px-2 py-0 h-4 bg-slate-100 text-slate-600 border-none shadow-none"
+                                    )}
+                                  >
+                                    {book.paymentStatus?.toLowerCase()}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          ) : (
+                            <TableRow>
+                              <TableCell
+                                colSpan={4}
+                                className="text-center py-10 text-slate-400"
+                              >
+                                <div className="flex flex-col items-center gap-1.5">
+                                  <DoorOpen className="h-6 w-6 opacity-10" />
+                                  <p className="text-[11px]">No bookings found.</p>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="maintenance" className="mt-0 outline-none">
+                    <div className="border border-slate-100 rounded-lg overflow-hidden bg-white">
+                      <Table>
+                        <TableHeader className="bg-slate-50/50">
+                          <TableRow className="hover:bg-transparent border-slate-100">
+                            <TableHead className="text-[11px] h-9 text-slate-500">Date Range</TableHead>
+                            <TableHead className="text-[11px] h-9 text-slate-500">Reason</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {logs?.outOfOrders?.length ? (
+                            logs.outOfOrders.map((oo: any) => (
+                              <TableRow key={oo.id} className="hover:bg-slate-50/50 transition-colors border-slate-50">
+                                <TableCell className="text-xs py-2 text-slate-600">
+                                  {format(new Date(oo.startDate), "LLL dd, y")} -{" "}
+                                  {format(new Date(oo.endDate), "LLL dd, y")}
+                                </TableCell>
+                                <TableCell className="text-xs py-2 text-slate-600">
+                                  <div className="flex items-center gap-1.5">
+                                    <Settings className="h-3 w-3 text-slate-300" />
+                                    {oo.reason}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          ) : (
+                            <TableRow>
+                              <TableCell
+                                colSpan={2}
+                                className="text-center py-10 text-slate-400"
+                              >
+                                <div className="flex flex-col items-center gap-1.5">
+                                  <Settings className="h-6 w-6 opacity-10" />
+                                  <p className="text-[11px]">No maintenance records.</p>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </TabsContent>
+                </>
+              )}
+            </div>
+          </Tabs>
+        </div>
+        <DialogFooter className="border-t pt-4">
+          <Button variant="outline" onClick={onClose}>Close Details</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 export default function Lawns() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -347,14 +801,46 @@ export default function Lawns() {
     to: new Date().toISOString().split("T")[0],
   });
   const [selectedTimeSlot, setSelectedTimeSlot] = useState("MORNING");
+  const [reserveRemarks, setReserveRemarks] = useState("");
 
   const [form, setForm] = useState<LawnForm>(initialFormState);
   const [newOutOfOrder, setNewOutOfOrder] = useState<LawnOutOfOrder>(initialOutOfOrderState);
   const [editForm, setEditForm] = useState<any>({ ...initialFormState, id: "" });
   const [editNewOutOfOrder, setEditNewOutOfOrder] = useState<LawnOutOfOrder>(initialOutOfOrderState);
 
+  // Detail Dialog states
+  const [detailLawn, setDetailLawn] = useState<Lawn | null>(null);
+  const [detailLogs, setDetailLogs] = useState<any>(null);
+  const [logLoading, setLogLoading] = useState(false);
+  const [detailDateRange, setDetailDateRange] = useState<DateRange | undefined>({
+    from: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+    to: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0),
+  });
+  const [activeTab, setActiveTab] = useState("reservations");
+
   const { data: lawns = [], isLoading: isLoadingLawns } = useQuery({ queryKey: ["lawns"], queryFn: getLawns });
   const { data: lawnCategories = [] } = useQuery({ queryKey: ["lawnCategories"], queryFn: getLawnCategories });
+
+  const fetchLogs = useCallback(async () => {
+    if (!detailLawn || !detailDateRange?.from || !detailDateRange?.to) return;
+    setLogLoading(true);
+    try {
+      const data = await getLawnLogs(
+        detailLawn.id,
+        detailDateRange.from.toISOString(),
+        detailDateRange.to.toISOString()
+      );
+      setDetailLogs(data);
+    } catch (error) {
+      toast({ title: "Failed to fetch logs", variant: "destructive" });
+    } finally {
+      setLogLoading(false);
+    }
+  }, [detailLawn, detailDateRange, toast]);
+
+  useEffect(() => {
+    if (detailLawn) fetchLogs();
+  }, [detailLawn, detailDateRange, fetchLogs]);
 
   const createMutation = useMutation({
     mutationFn: (data: any) => createLawn({ ...data, lawnCategoryId: Number(data.lawnCategoryId) }),
@@ -447,8 +933,8 @@ export default function Lawns() {
     const currentlyReserved = lawns.filter((l: Lawn) => l.reservations?.some(r => getDaySortKey(r.reservedFrom) === sFrom && getDaySortKey(r.reservedTo) === sTo && r.timeSlot === selectedTimeSlot)).map((l: Lawn) => l.id);
     const toReserve = selectedLawns.filter(id => !currentlyReserved.includes(id));
     const toUnreserve = currentlyReserved.filter(id => !selectedLawns.includes(id));
-    if (toReserve.length > 0) reserveMutation.mutate({ lawnIds: toReserve, reserve: true, reserveFrom: reserveDates.from, reserveTo: reserveDates.to, timeSlot: selectedTimeSlot });
-    if (toUnreserve.length > 0) reserveMutation.mutate({ lawnIds: toUnreserve, reserve: false, reserveFrom: reserveDates.from, reserveTo: reserveDates.to, timeSlot: selectedTimeSlot });
+    if (toReserve.length > 0) reserveMutation.mutate({ lawnIds: toReserve, reserve: true, reserveFrom: reserveDates.from, reserveTo: reserveDates.to, timeSlot: selectedTimeSlot, remarks: reserveRemarks });
+    if (toUnreserve.length > 0) reserveMutation.mutate({ lawnIds: toUnreserve, reserve: false, reserveFrom: reserveDates.from, reserveTo: reserveDates.to, timeSlot: selectedTimeSlot, remarks: reserveRemarks });
   };
 
   return (
@@ -502,7 +988,14 @@ export default function Lawns() {
                     <TableCell className="font-semibold">{l.lawnCategory?.category}</TableCell>
                     <TableCell>{l.minGuests} - {l.maxGuests}</TableCell>
                     <TableCell>PKR {Number(l.memberCharges).toLocaleString()} / {Number(l.guestCharges).toLocaleString()}</TableCell>
-                    <TableCell><StatusIndicator isActive={l.isActive} /></TableCell>
+                    <TableCell>
+                      <Badge variant={getLawnStatusVariant(getLawnStatus(l)) as any} className={cn(
+                        getLawnStatus(l) === "Available" ? "bg-emerald-600 text-white" :
+                          getLawnStatus(l) === "On Hold" ? "bg-amber-500 text-white border-amber-600" : ""
+                      )}>
+                        {getLawnStatus(l)}
+                      </Badge>
+                    </TableCell>
                     <TableCell><MaintenanceIndicator outOfOrders={l.outOfOrders} isOutOfService={l.isOutOfService} /></TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1">
@@ -516,8 +1009,33 @@ export default function Lawns() {
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => setEditLawn(l)}><Edit className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="icon" onClick={() => setDeleteLawnItem(l)}><Trash2 className="h-4 w-4" /></Button>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                          onClick={() => setDetailLawn(l)}
+                          title="View Details"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-blue-600"
+                          onClick={() => setEditLawn(l)}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive"
+                          onClick={() => setDeleteLawnItem(l)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -530,7 +1048,10 @@ export default function Lawns() {
       {/* Reservation Dialog */}
       <Dialog open={reserveDialog} onOpenChange={(open) => {
         setReserveDialog(open);
-        if (!open) setSelectedLawns([]);
+        if (!open) {
+          setSelectedLawns([]);
+          setReserveRemarks("");
+        }
       }}>
         <DialogContent className="max-w-7xl">
           <DialogHeader><DialogTitle>Bulk Reservations</DialogTitle></DialogHeader>
@@ -599,6 +1120,15 @@ export default function Lawns() {
                   <SelectItem value="NIGHT">Night (8:00 PM - 1:00 AM)</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="flex-1">
+              <Label className="text-xs font-semibold">Reservation Remarks</Label>
+              <Input
+                className="mt-1 h-10 bg-white shadow-sm"
+                placeholder="Optional remarks (e.g. Member name, Event type)"
+                value={reserveRemarks}
+                onChange={(e) => setReserveRemarks(e.target.value)}
+              />
             </div>
           </div>
           {reserveDates.from && reserveDates.to && getDaySortKey(reserveDates.from) > getDaySortKey(reserveDates.to) && (
@@ -669,8 +1199,9 @@ export default function Lawns() {
                   });
 
                   const hasBooking = l.bookings?.find(b => {
-                    const d = getDaySortKey(b.bookingFrom);
-                    return d >= mFrom && d <= mTo && b.timeSlot === selectedTimeSlot;
+                    const s = getDaySortKey(b.bookingDate);
+                    const e = getDaySortKey(b.endDate);
+                    return s <= mTo && e >= mFrom && b.bookingTime === selectedTimeSlot;
                   });
 
                   const isConflicted = hasMaintenance || hasBooking || overlappingReservation;
@@ -692,7 +1223,14 @@ export default function Lawns() {
                       <TableCell>
                         <div className="flex flex-col gap-1">
                           {activeReservation && (
-                            <Badge variant="secondary" className="bg-blue-100 text-blue-700 border-blue-200 w-fit">Reserved by you</Badge>
+                            <div className="flex flex-col gap-1">
+                              <Badge variant="secondary" className="bg-blue-100 text-blue-700 border-blue-200 w-fit">Reserved by you</Badge>
+                              {activeReservation.remarks && (
+                                <div className="text-[10px] text-blue-600 font-medium italic truncate max-w-[150px]" title={activeReservation.remarks}>
+                                  "{activeReservation.remarks}"
+                                </div>
+                              )}
+                            </div>
                           )}
                           {hasMaintenance && (
                             <div className="flex items-center gap-1.5 text-[10px] text-red-600 font-medium">
@@ -730,18 +1268,42 @@ export default function Lawns() {
           </div>
 
           <DialogFooter className="gap-2">
-            <div className="flex-1 text-xs text-muted-foreground flex items-center">
-              {selectedLawns.length > 0 && <span>{selectedLawns.length} lawn(s) selected for action.</span>}
+            <div className="flex-1 text-xs text-muted-foreground flex items-center gap-2">
+              {(() => {
+                const sFrom = getDaySortKey(reserveDates.from);
+                const sTo = getDaySortKey(reserveDates.to);
+                const currentlyReserved = lawns.filter((l: Lawn) => l.reservations?.some(r => getDaySortKey(r.reservedFrom) === sFrom && getDaySortKey(r.reservedTo) === sTo && r.timeSlot === selectedTimeSlot)).map((l: Lawn) => l.id);
+                const toReserve = selectedLawns.filter(id => !currentlyReserved.includes(id));
+                const toUnreserve = currentlyReserved.filter(id => !selectedLawns.includes(id));
+                return (
+                  <>
+                    {toReserve.length > 0 && <span className="text-emerald-600">{toReserve.length} to reserve</span>}
+                    {toReserve.length > 0 && toUnreserve.length > 0 && <span>•</span>}
+                    {toUnreserve.length > 0 && <span className="text-red-600">{toUnreserve.length} to unreserve</span>}
+                    {toReserve.length === 0 && toUnreserve.length === 0 && <span>No changes to make</span>}
+                  </>
+                );
+              })()}
             </div>
             <Button variant="outline" onClick={() => setReserveDialog(false)}>Close</Button>
             <Button
               onClick={handleBulkReserve}
-              disabled={reserveMutation.isPending || selectedLawns.length === 0 || (reserveDates.from && reserveDates.to && getDaySortKey(reserveDates.from) > getDaySortKey(reserveDates.to))}
+              disabled={(() => {
+                if (reserveMutation.isPending) return true;
+                if (reserveDates.from && reserveDates.to && getDaySortKey(reserveDates.from) > getDaySortKey(reserveDates.to)) return true;
+                const sFrom = getDaySortKey(reserveDates.from);
+                const sTo = getDaySortKey(reserveDates.to);
+                const currentlyReserved = lawns.filter((l: Lawn) => l.reservations?.some(r => getDaySortKey(r.reservedFrom) === sFrom && getDaySortKey(r.reservedTo) === sTo && r.timeSlot === selectedTimeSlot)).map((l: Lawn) => l.id);
+                const toReserve = selectedLawns.filter(id => !currentlyReserved.includes(id));
+                const toUnreserve = currentlyReserved.filter(id => !selectedLawns.includes(id));
+                return toReserve.length === 0 && toUnreserve.length === 0;
+              })()}
             >
               {reserveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Confirm Action
             </Button>
           </DialogFooter>
+
 
         </DialogContent>
       </Dialog>
@@ -878,6 +1440,17 @@ export default function Lawns() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <LawnDetailDialog
+        lawn={detailLawn}
+        onClose={() => setDetailLawn(null)}
+        logs={detailLogs}
+        loading={logLoading}
+        dateRange={detailDateRange}
+        activeTab={activeTab}
+        onDateRangeChange={setDetailDateRange}
+        onTabChange={setActiveTab}
+      />
     </div>
   );
 }

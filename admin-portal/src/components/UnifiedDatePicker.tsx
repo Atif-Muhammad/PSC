@@ -15,8 +15,10 @@ interface DateStatus {
 
 interface UnifiedDatePickerProps {
     value?: Date | string | null;
-    onChange: (date: Date | undefined) => void;
+    endDate?: Date | string | null;
+    onChange: (date: Date | undefined, type?: "start" | "end") => void;
     mode?: "date" | "datetime";
+    selectionMode?: "single" | "range";
     label?: string;
     placeholder?: string;
     disabled?: boolean;
@@ -39,8 +41,10 @@ const DEFAULT_TIME_SLOTS = [
 
 export function UnifiedDatePicker({
     value,
+    endDate: endDateValue,
     onChange,
     mode = "date",
+    selectionMode = "single",
     label,
     placeholder = "Select date",
     disabled = false,
@@ -56,10 +60,8 @@ export function UnifiedDatePicker({
     // Parse value to Date object
     const parsedDate = useMemo(() => {
         if (!value) return undefined;
-        if (value instanceof Date) return value;
+        if (value instanceof Date) return isNaN(value.getTime()) ? undefined : value;
         try {
-            // Handle "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm:ss"
-            // We want to preserve the local time components
             const d = new Date(value);
             return isNaN(d.getTime()) ? undefined : d;
         } catch {
@@ -67,18 +69,34 @@ export function UnifiedDatePicker({
         }
     }, [value]);
 
+    const parsedEndDate = useMemo(() => {
+        if (!endDateValue) return undefined;
+        if (endDateValue instanceof Date) return isNaN(endDateValue.getTime()) ? undefined : endDateValue;
+        try {
+            const d = new Date(endDateValue);
+            return isNaN(d.getTime()) ? undefined : d;
+        } catch {
+            return undefined;
+        }
+    }, [endDateValue]);
+
     const [selectedDate, setSelectedDate] = useState<Date | undefined>(parsedDate);
-    // console.log(parsedDate)
+    const [selectedEndDate, setSelectedEndDate] = useState<Date | undefined>(parsedEndDate);
+    const [month, setMonth] = useState<Date | undefined>(parsedDate || new Date());
     const [selectedTime, setSelectedTime] = useState<string>(
         parsedDate ? format(parsedDate, "HH:mm") : ""
     );
 
     useEffect(() => {
         setSelectedDate(parsedDate);
+        setSelectedEndDate(parsedEndDate);
+        if (parsedDate) {
+            setMonth(parsedDate);
+        }
         if (parsedDate && mode === "datetime") {
             setSelectedTime(format(parsedDate, "HH:mm"));
         }
-    }, [parsedDate, mode]);
+    }, [parsedDate, parsedEndDate, mode]);
 
     // Availability Logic (Ported from DatePickerInput)
     const calculatedDateStatuses = useMemo(() => {
@@ -207,20 +225,37 @@ export function UnifiedDatePicker({
         );
     }, [calculatedDateStatuses, isCheckout, minDate]);
 
-    const handleDateSelect = (date: Date | undefined) => {
-        setSelectedDate(date);
-        if (mode === "date") {
-            onChange(date);
-            setOpen(false);
+    const handleDateSelect = (date: any) => {
+        if (selectionMode === "range") {
+            // date will be { from: Date, to: Date } if mode="range" but we are using single-click logic or standard range logic?
+            // Actually, Calendar mode="range" gives { from: Date, to: Date }
+            const range = date as { from: Date | undefined; to: Date | undefined };
+            setSelectedDate(range?.from);
+            setSelectedEndDate(range?.to);
+
+            if (range?.from) {
+                onChange(range.from, "start");
+            }
+            if (range?.to) {
+                onChange(range.to, "end");
+            } else if (!range?.to && range?.from) {
+                // If only start date is selected, we might want to notify or wait
+                // In LawnBookings, "type" characterizes which part is changing.
+            }
+            // we don't close popover for range until maybe end date is picked?
+            // or just let user click outside.
         } else {
-            // For datetime, we wait for time selection or just update date part
-            if (date && selectedTime) {
-                const [hours, minutes] = selectedTime.split(":").map(Number);
-                const newDateTime = new Date(date);
-                newDateTime.setHours(hours, minutes, 0, 0);
-                onChange(newDateTime);
+            setSelectedDate(date);
+            if (mode === "date") {
+                onChange(date);
+                setOpen(false);
             } else {
-                // If no time selected yet, just update internal state
+                if (date && selectedTime) {
+                    const [hours, minutes] = selectedTime.split(":").map(Number);
+                    const newDateTime = new Date(date);
+                    newDateTime.setHours(hours, minutes, 0, 0);
+                    onChange(newDateTime);
+                }
             }
         }
     };
@@ -259,7 +294,17 @@ export function UnifiedDatePicker({
                         disabled={disabled}
                     >
                         <CalendarIcon className="mr-2 h-4 w-4" />
-                        {selectedDate ? (
+                        {selectionMode === "range" ? (
+                            selectedDate ? (
+                                selectedEndDate ? (
+                                    <span>{format(selectedDate, "PPP")} - {format(selectedEndDate, "PPP")}</span>
+                                ) : (
+                                    <span>{format(selectedDate, "PPP")} ...</span>
+                                )
+                            ) : (
+                                <span>{placeholder}</span>
+                            )
+                        ) : selectedDate ? (
                             mode === "datetime" && selectedTime ? (
                                 <span>{format(selectedDate, "PPP")} at {selectedTime}</span>
                             ) : (
@@ -293,9 +338,11 @@ export function UnifiedDatePicker({
                             )}
 
                             <Calendar
-                                mode="single"
-                                selected={selectedDate}
+                                mode={selectionMode as any}
+                                selected={selectionMode === "range" ? { from: selectedDate, to: selectedEndDate } : selectedDate}
                                 onSelect={handleDateSelect}
+                                month={month}
+                                onMonthChange={setMonth}
                                 disabled={isDateDisabled}
                                 initialFocus
                                 modifiers={{
